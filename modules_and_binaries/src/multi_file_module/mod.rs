@@ -1,8 +1,8 @@
 // This module is defined in a directory.
 
-// Use the `internal` module but don't export it.
+// Use but don't export.
 mod internal;
-// Use and export the `nested` module.
+// Use and export.
 pub mod nested;
 
 pub fn c() -> String { String::from("C") }
