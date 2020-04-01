@@ -1,4 +1,5 @@
-// Each src/bin/*.rs file is its own crate.
+// This is a single-file binary.
+// Each binary under src/bin/ is its own crate.
 // To use src/* modules, import the default library crate.  It has the same name as the package.
 extern crate modules_and_binaries;
 
@@ -10,7 +11,6 @@ fn main() {
     // $ cargo run --bin binary1
     // AB C CDE E
 
-    // $ cargo build --release
-    // $ target/release/binary1
+    // $ cargo build --release && target/release/binary1
     // AB C CDE E
 }
