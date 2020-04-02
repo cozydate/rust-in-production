@@ -44,8 +44,8 @@ fn main() {
     // [2020-04-01T19:39:32Z INFO  logging::using_log] using_log 1
     // [2020-04-01T19:39:32Z DEBUG logging::using_log] using_log 1
 
-    // Be sure to include the default level.  If you omit it, then the default is to suppress
-    // logging from all modules except those explicitly set.
+    // Be sure to include the default level.  If you omit it, only modules with explicitly set
+    // levels will produce log messages.
     // $ RUST_LOG="logging::using_log=error" cargo run --bin 0_default_level
     // [2020-04-01T19:40:24Z ERROR logging::using_log] using_log 1
 }
