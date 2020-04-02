@@ -1,11 +1,18 @@
 use std::sync::Mutex;
 
-use slog::{debug, info};
+use slog::{debug, FilterLevel, info};
 
 fn main() {
     let drain = slog_json::Json::default(std::io::stdout());
-    let filters = std::env::var("RUST_LOG").unwrap_or(String::from("info"));
-    let drain = slog_envlogger::LogBuilder::new(drain).parse(&filters).build();
+    let drain = slog_envlogger::LogBuilder::new(drain)
+        // Default level
+        .filter(Option::None, FilterLevel::Debug)
+        // Per-module default levels
+        .filter(Some("logging::apple"), FilterLevel::Debug)
+        .filter(Some("logging::banana"), FilterLevel::Info)
+        // Add any level overrides from environment variable
+        .parse(&std::env::var("RUST_LOG").unwrap_or(String::new()))
+        .build();
     let drain = slog::Fuse(Mutex::new(drain));
     let drain = slog::Fuse(slog_async::Async::default(drain));
     let logger = slog::Logger::root(drain, slog::o!());
@@ -13,25 +20,29 @@ fn main() {
 
     info!(slog_scope::logger(), "main");
     debug!(slog_scope::logger(), "main");
-    logging::using_slog::debug();
+    logging::apple::debug();
+    logging::banana::info();
+    logging::banana::debug();
 
     // $ cargo run --bin log_levels_from_env_var
-    // {"msg":"main","level":"INFO","ts":"2020-04-02T00:05:36.083135-07:00"}
+    // {"msg":"main","level":"INFO","ts":"2020-04-02T09:36:10.116799-07:00"}
+    // {"msg":"main","level":"DEBG","ts":"2020-04-02T09:36:10.117368-07:00"}
+    // {"msg":"apple 1","level":"DEBG","ts":"2020-04-02T09:36:10.117394-07:00","x":2}
+    // {"msg":"banana 1","level":"INFO","ts":"2020-04-02T09:36:10.117426-07:00","x":2}
 
     // You can change the default log level:
     // $ RUST_LOG=debug cargo run --bin log_levels_from_env_var
-    // {"msg":"main","level":"INFO","ts":"2020-04-02T00:05:54.017148-07:00"}
-    // {"msg":"main","level":"DEBG","ts":"2020-04-02T00:05:54.017735-07:00"}
-    // {"msg":"using_slog 1","level":"DEBG","ts":"2020-04-02T00:05:54.017766-07:00","x":2}
+    // {"msg":"main","level":"INFO","ts":"2020-04-02T09:36:25.783190-07:00"}
+    // {"msg":"main","level":"DEBG","ts":"2020-04-02T09:36:25.783800-07:00"}   <-- Note
+    // {"msg":"apple 1","level":"DEBG","ts":"2020-04-02T09:36:25.783830-07:00","x":2}
+    // {"msg":"banana 1","level":"INFO","ts":"2020-04-02T09:36:25.783866-07:00","x":2}
 
     // You can set log level for specific modules.
     // See https://docs.rs/slog-envlogger/2.2.0/slog_envlogger/
-    // $ RUST_LOG="info,logging::using_slog=debug" cargo run --bin log_levels_from_env_var
-    // {"msg":"main","level":"INFO","ts":"2020-04-02T00:06:10.670963-07:00"}
-    // {"msg":"using_slog 1","level":"DEBG","ts":"2020-04-02T00:06:10.671500-07:00","x":2}
-
-    // Be sure to include the default level.  If you omit it, only modules with explicitly set
-    // levels will produce log messages.
-    // $ RUST_LOG="logging::using_slog=debug" cargo run --bin log_levels_from_env_var
-    // {"msg":"using_slog 1","level":"DEBG","ts":"2020-04-02T00:07:43.752226-07:00","x":2}
+    // $ RUST_LOG="logging::banana=debug" cargo run --bin log_levels_from_env_var
+    // {"msg":"main","level":"INFO","ts":"2020-04-02T09:36:59.037244-07:00"}
+    // {"msg":"main","level":"DEBG","ts":"2020-04-02T09:36:59.037870-07:00"}
+    // {"msg":"apple 1","level":"DEBG","ts":"2020-04-02T09:36:59.037901-07:00","x":2}
+    // {"msg":"banana 1","level":"INFO","ts":"2020-04-02T09:36:59.037953-07:00","x":2}
+    // {"msg":"banana 1","level":"DEBG","ts":"2020-04-02T09:36:59.037981-07:00","x":2} <-- Note
 }

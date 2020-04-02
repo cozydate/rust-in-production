@@ -12,10 +12,10 @@ fn main() {
 
     info!(slog_scope::logger(), "main");
     debug!(slog_scope::logger(), "main");  // Suppressed.
-    logging::using_slog::info();
-    logging::using_slog::debug();  // Suppressed.
+    logging::apple::info();
+    logging::apple::debug();  // Suppressed.
 
-    // $ cargo run --bin log_levels_in_code
-    // {"msg":"main","level":"INFO","ts":"2020-04-02T00:22:47.298239-07:00"}
-    // {"msg":"using_slog 1","level":"INFO","ts":"2020-04-02T00:22:47.298837-07:00","x":2}
+    // $ cargo run --bin log_level_in_code
+    // {"msg":"main","level":"INFO","ts":"2020-04-02T09:28:01.920450-07:00"}
+    // {"msg":"apple 1","level":"INFO","ts":"2020-04-02T09:28:01.921396-07:00","x":2}
 }

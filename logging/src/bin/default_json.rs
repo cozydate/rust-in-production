@@ -23,27 +23,27 @@ fn main() {
     logging::using_log::trace();
     logging::using_log::info_in_thread();
 
-    logging::using_slog::error();
-    logging::using_slog::warn();
-    logging::using_slog::info();
-    logging::using_slog::debug();
-    logging::using_slog::trace();
-    logging::using_slog::info_in_thread();
+    logging::apple::error();
+    logging::apple::warn();
+    logging::apple::info();
+    logging::apple::debug();
+    logging::apple::trace();
+    logging::apple::info_in_thread();
 
     // $ cargo run --bin default_json
-    // {"msg":"main 1","level":"ERRO","ts":"2020-04-01T22:55:28.215560-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"main 1","level":"WARN","ts":"2020-04-01T22:55:28.216221-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"main 1","level":"INFO","ts":"2020-04-01T22:55:28.216248-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"main 1","level":"DEBG","ts":"2020-04-01T22:55:28.216272-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"using_log 1","level":"ERRO","ts":"2020-04-01T22:55:28.216297-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_log 1","level":"WARN","ts":"2020-04-01T22:55:28.216321-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_log 1","level":"INFO","ts":"2020-04-01T22:55:28.216344-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_log 1","level":"DEBG","ts":"2020-04-01T22:55:28.216368-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_log 1","level":"TRCE","ts":"2020-04-01T22:55:28.216391-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_log in thread 1","level":"INFO","ts":"2020-04-01T22:55:28.216415-07:00","key_set_in_root_logger":1}
-    // {"msg":"using_slog 1","level":"ERRO","ts":"2020-04-01T22:55:28.216438-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"using_slog 1","level":"WARN","ts":"2020-04-01T22:55:28.216462-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"using_slog 1","level":"INFO","ts":"2020-04-01T22:55:28.216486-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"using_slog 1","level":"DEBG","ts":"2020-04-01T22:55:28.216510-07:00","key_set_in_root_logger":1,"x":2}
-    // {"msg":"using_slog in thread 1","level":"INFO","ts":"2020-04-01T22:55:28.216534-07:00","key_set_for_thread":1,"key_set_in_root_logger":1,"x":2}
+    // {"msg":"main 1","level":"ERRO","ts":"2020-04-02T09:27:02.887279-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"main 1","level":"WARN","ts":"2020-04-02T09:27:02.888015-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"main 1","level":"INFO","ts":"2020-04-02T09:27:02.888043-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"main 1","level":"DEBG","ts":"2020-04-02T09:27:02.888068-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"using_log 1","level":"ERRO","ts":"2020-04-02T09:27:02.888092-07:00","key_set_in_root_logger":1}
+    // {"msg":"using_log 1","level":"WARN","ts":"2020-04-02T09:27:02.888123-07:00","key_set_in_root_logger":1}
+    // {"msg":"using_log 1","level":"INFO","ts":"2020-04-02T09:27:02.888147-07:00","key_set_in_root_logger":1}
+    // {"msg":"using_log 1","level":"DEBG","ts":"2020-04-02T09:27:02.888170-07:00","key_set_in_root_logger":1}
+    // {"msg":"using_log 1","level":"TRCE","ts":"2020-04-02T09:27:02.888193-07:00","key_set_in_root_logger":1}
+    // {"msg":"using_log in thread 1","level":"INFO","ts":"2020-04-02T09:27:02.888216-07:00","key_set_in_root_logger":1}
+    // {"msg":"apple 1","level":"ERRO","ts":"2020-04-02T09:27:02.888239-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"apple 1","level":"WARN","ts":"2020-04-02T09:27:02.888263-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"apple 1","level":"INFO","ts":"2020-04-02T09:27:02.888286-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"apple 1","level":"DEBG","ts":"2020-04-02T09:27:02.888310-07:00","key_set_in_root_logger":1,"x":2}
+    // {"msg":"apple in thread 1","level":"INFO","ts":"2020-04-02T09:27:02.888334-07:00","thread_scope_apple_origin":"USA","key_set_in_root_logger":1,"x":2}
 }
