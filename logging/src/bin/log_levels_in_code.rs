@@ -1,17 +1,16 @@
 use std::sync::Mutex;
 
-use slog::{debug, info};
+use slog::{debug, warn};
 
 fn main() {
     let drain = slog_json::Json::default(std::io::stdout());
-    let filters = std::env::var("RUST_LOG").unwrap_or(String::from("info"));
-    let drain = slog_envlogger::LogBuilder::new(drain).parse(&filters).build();
+    let drain = slog::LevelFilter(drain, slog::Level::Info);
     let drain = slog::Fuse(Mutex::new(drain));
     let drain = slog::Fuse(slog_async::Async::default(drain));
     let logger = slog::Logger::root(drain, slog::o!());
     let _guard = slog_scope::set_global_logger(logger);
 
-    info!(slog_scope::logger(), "main");
+    warn!(slog_scope::logger(), "main");
     debug!(slog_scope::logger(), "main");
     logging::using_slog::debug();
 
