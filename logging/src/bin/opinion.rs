@@ -38,7 +38,7 @@
 /// {"host":"mbp","time_ns":1585851354242507000,"time":"2020-04-02T18:15:54.242521000Z", \
 /// "module":"mod1","level":"ERROR","message":"msg1","thread":"main","x":2}
 /// ```
-fn configure_logging(filters: &str) -> slog_scope::GlobalLoggerGuard {
+fn configure_logging(_process_name: &'static str, filters: &str) -> slog_scope::GlobalLoggerGuard {
     let _host = ::hostname::get()
         .unwrap()
         .into_string()
@@ -76,6 +76,7 @@ fn configure_logging(filters: &str) -> slog_scope::GlobalLoggerGuard {
             "module" => slog::FnValue(_module_fn),
             "time" => slog::FnValue(_time_fn),
             "time_ns" => slog::FnValue(_time_ns_fn),
+            "process" => _process_name,
             "host" => _host,
         )).build();
     let drain = slog_envlogger::LogBuilder::new(drain)
@@ -120,7 +121,7 @@ macro_rules! trace (
 );
 
 fn main() {
-    let _global_logger_guard = configure_logging("info");
+    let _global_logger_guard = configure_logging("opinion", "info");
     thread_logging_scope("main", || {
         error!("main"; "x" => 2);
         warn!("main"; "x" => 2);
@@ -136,11 +137,11 @@ fn main() {
     });
 
     // $ cargo run --bin opinion
-    // {"host":"mbp","time_ns":1585904687327521000,"time":"2020-04-03T09:04:47.327562000Z","module":"opinion","level":"ERROR","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585904687327717000,"time":"2020-04-03T09:04:47.327719000Z","module":"opinion","level":"WARN","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585904687327751000,"time":"2020-04-03T09:04:47.327753000Z","module":"opinion","level":"INFO","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585904687327783000,"time":"2020-04-03T09:04:47.327784000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
-    // {"host":"mbp","time_ns":1585904687327812000,"time":"2020-04-03T09:04:47.327813000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
-    // {"host":"mbp","time_ns":1585904687327840000,"time":"2020-04-03T09:04:47.327841000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585904687327870000,"time":"2020-04-03T09:04:47.327872000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327521000,"time":"2020-04-03T09:04:47.327562000Z","module":"opinion","level":"ERROR","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327717000,"time":"2020-04-03T09:04:47.327719000Z","module":"opinion","level":"WARN","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327751000,"time":"2020-04-03T09:04:47.327753000Z","module":"opinion","level":"INFO","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327783000,"time":"2020-04-03T09:04:47.327784000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327812000,"time":"2020-04-03T09:04:47.327813000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327840000,"time":"2020-04-03T09:04:47.327841000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585904687327870000,"time":"2020-04-03T09:04:47.327872000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
 }

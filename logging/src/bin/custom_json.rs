@@ -39,6 +39,7 @@ fn main() {
             "module" => FnValue(module_fn),
             "time" => FnValue(time_fn),
             "time_ns" => FnValue(time_ns_fn),
+            "process" => "custom_json",
             "host" => host,
         )).build();
     let drain = slog::Fuse(Mutex::new(drain));
@@ -62,13 +63,13 @@ fn main() {
     });
 
     // $ cargo run --bin custom_json
-    // {"host":"mbp","time_ns":1585851354242507000,"time":"2020-04-02T18:15:54.242521000Z","module":"custom_json","level":"ERROR","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354242732000,"time":"2020-04-02T18:15:54.242734000Z","module":"custom_json","level":"WARN","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354242789000,"time":"2020-04-02T18:15:54.242791000Z","module":"custom_json","level":"INFO","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354242824000,"time":"2020-04-02T18:15:54.242825000Z","module":"custom_json","level":"DEBUG","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354242854000,"time":"2020-04-02T18:15:54.242855000Z","module":"custom_json","level":"TRACE","message":"main","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354242925000,"time":"2020-04-02T18:15:54.242926000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
-    // {"host":"mbp","time_ns":1585851354242953000,"time":"2020-04-02T18:15:54.242954000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
-    // {"host":"mbp","time_ns":1585851354242980000,"time":"2020-04-02T18:15:54.242981000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
-    // {"host":"mbp","time_ns":1585851354243009000,"time":"2020-04-02T18:15:54.243010000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242507000,"time":"2020-04-02T18:15:54.242521000Z","module":"custom_json","level":"ERROR","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242732000,"time":"2020-04-02T18:15:54.242734000Z","module":"custom_json","level":"WARN","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242789000,"time":"2020-04-02T18:15:54.242791000Z","module":"custom_json","level":"INFO","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242824000,"time":"2020-04-02T18:15:54.242825000Z","module":"custom_json","level":"DEBUG","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242854000,"time":"2020-04-02T18:15:54.242855000Z","module":"custom_json","level":"TRACE","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242925000,"time":"2020-04-02T18:15:54.242926000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242953000,"time":"2020-04-02T18:15:54.242954000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354242980000,"time":"2020-04-02T18:15:54.242981000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
+    // {"host":"mbp","process":"custom_json","time_ns":1585851354243009000,"time":"2020-04-02T18:15:54.243010000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
 }
