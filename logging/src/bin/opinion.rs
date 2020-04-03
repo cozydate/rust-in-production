@@ -35,8 +35,9 @@
 ///
 /// Example output:
 /// ```json
-/// {"host":"mbp","time_ns":1585851354242507000,"time":"2020-04-02T18:15:54.242521000Z", \
-/// "module":"mod1","level":"ERROR","message":"msg1","thread":"main","x":2}
+/// {"host":"mbp","process":"opinion","time_ns":1585851354242507000, \
+/// "time":"2020-04-02T18:15:54.242521000Z","module":"mod1","level":"ERROR","message":"msg1", \
+/// "thread":"main","x":2}
 /// ```
 fn configure_logging(_process_name: &'static str, filters: &str) -> slog_scope::GlobalLoggerGuard {
     let _host = ::hostname::get()
