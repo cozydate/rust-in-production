@@ -101,7 +101,7 @@ fn configure_logging(_process_name: &'static str, filters: &str) -> slog_scope::
 
 fn thread_logging_scope<SF, R>(_name: &str, f: SF) -> R
     where SF: FnOnce() -> R {
-    let logger = slog_scope::logger().new(slog::o!("thread" => String::from( _name)));
+    let logger = slog_scope::logger().new(slog::o!("thread" => String::from(_name)));
     slog_scope::scope(&logger, f)
 }
 
