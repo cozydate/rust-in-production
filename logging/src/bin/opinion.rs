@@ -4,7 +4,6 @@ use std::error::Error;
 use std::ffi::OsString;
 
 // TODO(leonhard) Add dev logging mode.  Perhaps use https://docs.rs/slog-json/2.3.0/slog_json/struct.JsonBuilder.html#method.set_pretty
-// TODO(leonhard) Log panics.
 
 fn string_from(oss: OsString) -> Result<String, String> {
     oss.into_string().map_err(
@@ -106,6 +105,7 @@ fn configure_logging(_process_name: &'static str, filters: &str)
     let logger = slog::Logger::root(drain, slog::o!());
     let _guard = slog_scope::set_global_logger(logger);
     slog_stdlog::init()?;
+    log_panics::init();
     Ok(_guard)
 }
 
@@ -145,14 +145,17 @@ fn main() {
 
         logging::apple::info();
         logging::apple::info_in_thread();
+
+        panic!("uhoh");
     });
 
     // $ cargo run --bin opinion
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327521000,"time":"2020-04-03T09:04:47.327562000Z","module":"opinion","level":"ERROR","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327717000,"time":"2020-04-03T09:04:47.327719000Z","module":"opinion","level":"WARN","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327751000,"time":"2020-04-03T09:04:47.327753000Z","module":"opinion","level":"INFO","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327783000,"time":"2020-04-03T09:04:47.327784000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327812000,"time":"2020-04-03T09:04:47.327813000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327840000,"time":"2020-04-03T09:04:47.327841000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
-    // {"host":"mbp","process":"opinion","time_ns":1585904687327870000,"time":"2020-04-03T09:04:47.327872000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091480000,"time":"2020-04-04T02:53:00.091490000Z","module":"opinion","level":"ERROR","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091592000,"time":"2020-04-04T02:53:00.091594000Z","module":"opinion","level":"WARN","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091629000,"time":"2020-04-04T02:53:00.091631000Z","module":"opinion","level":"INFO","message":"main","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091666000,"time":"2020-04-04T02:53:00.091667000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091699000,"time":"2020-04-04T02:53:00.091700000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091730000,"time":"2020-04-04T02:53:00.091732000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780091764000,"time":"2020-04-04T02:53:00.091765000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
+    // {"host":"mbp","process":"opinion","time_ns":1585968780116360000,"time":"2020-04-04T02:53:00.116364000Z","module":"log_panics","level":"ERROR","message":"thread 'main' panicked at 'uhoh': src/bin/opinion.rs:149\n   0: backtrace::backtrace::trace_unsynchronized\n   1: backtrace::backtrace::trace\n   2: backtrace::capture::Backtrace::create\n   3: backtrace::capture::Backtrace::new\n   4: log_panics::init::{{closure}}\n   5: std::panicking::rust_panic_with_hook\n   6: std::panicking::begin_panic\n   7: opinion::main::{{closure}}\n   8: slog_scope::scope\n   9: opinion::thread_logging_scope\n  10: opinion::main\n  11: std::rt::lang_start::{{closure}}\n  12: std::panicking::try::do_call\n  13: __rust_maybe_catch_panic\n  14: std::rt::lang_start_internal\n  15: std::rt::lang_start\n  16: main\n","thread":"main"}
 }
