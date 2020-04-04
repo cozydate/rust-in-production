@@ -1,5 +1,16 @@
 // Opinionated JSON logging.  You should do logging like this.
 
+use std::error::Error;
+use std::ffi::OsString;
+
+// TODO(leonhard) Add dev logging mode.  Perhaps use https://docs.rs/slog-json/2.3.0/slog_json/struct.JsonBuilder.html#method.set_pretty
+// TODO(leonhard) Log panics.
+
+fn string_from(oss: OsString) -> Result<String, String> {
+    oss.into_string().map_err(
+        |oss| std::format!("Error decoding OsString {:?} to String", oss))
+}
+
 /// Configure `log` and `slog` to emit JSON to stdout.
 ///
 /// Applies global and per-module filtering rules from `filters` and overrides them with
@@ -39,11 +50,10 @@
 /// "time":"2020-04-02T18:15:54.242521000Z","module":"mod1","level":"ERROR","message":"msg1", \
 /// "thread":"main","x":2}
 /// ```
-fn configure_logging(_process_name: &'static str, filters: &str) -> slog_scope::GlobalLoggerGuard {
-    let _host = ::hostname::get()
-        .unwrap()
-        .into_string()
-        .expect("Error converting hostname to UTF-8");
+fn configure_logging(_process_name: &'static str, filters: &str)
+                     -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
+{
+    let _host = string_from(::hostname::get()?)?;
     let _time_fn =
         |_: &slog::Record|
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
@@ -88,15 +98,15 @@ fn configure_logging(_process_name: &'static str, filters: &str) -> slog_scope::
                 Ok(x) => Ok(x),
                 Err(std::env::VarError::NotPresent) => Ok(String::new()),
                 Err(x) => Err(x)
-            }.unwrap()
+            }?
         )
         .build();
     let drain = slog::Fuse(std::sync::Mutex::new(drain));
     let drain = slog::Fuse(slog_async::Async::default(drain));
     let logger = slog::Logger::root(drain, slog::o!());
     let _guard = slog_scope::set_global_logger(logger);
-    slog_stdlog::init().unwrap();
-    _guard
+    slog_stdlog::init()?;
+    Ok(_guard)
 }
 
 fn thread_logging_scope<SF, R>(_name: &str, f: SF) -> R
@@ -122,7 +132,7 @@ macro_rules! trace (
 );
 
 fn main() {
-    let _global_logger_guard = configure_logging("opinion", "info");
+    let _global_logger_guard = configure_logging("opinion", "info").unwrap();
     thread_logging_scope("main", || {
         error!("main"; "x" => 2);
         warn!("main"; "x" => 2);
