@@ -15,6 +15,15 @@ fn string_from(oss: OsString) -> Result<String, String> {
 /// The `filters` syntax is quite expressive.
 /// See the [slog_envlogger docs](https://docs.rs/slog-envlogger/2.2.0/slog_envlogger/)
 ///
+/// You can set the `DEV_LOG_FORMAT` environment variable to one of:
+/// - `"json"` or `""` to log in JSON format.
+/// - `"compact"` to print scope variables on their own line and indent log messages emitted inside
+///   the scope.
+/// - `"full"` to print scope variables on every line, with color.
+/// - `"plain"` to print without color.
+///
+/// Release binaries always log JSON.  Only debug binaries check the `DEV_LOG_FORMAT` env var.
+///
 /// Examples:
 /// - Set the default log level to `info`.
 ///   The program will emit log messages with level `info` and higher.
