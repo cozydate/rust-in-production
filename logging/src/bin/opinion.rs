@@ -28,7 +28,7 @@ fn string_from(oss: OsString) -> Result<String, String> {
 /// - Set the default log level to `info`.
 ///   The program will emit log messages with level `info` and higher.
 ///   ```
-///   let _global_logger_guard = configure_logging("info");
+///   let _global_logger_guard = configure_logging("prog1", "info");
 ///   info!("a message"; "some_data" => 123, "other_data" => "val1");
 ///   slog::info!(slog_scope::logger(), "a message"; "some_data" => 123, "other_data" => "val1");
 ///   log::info!("a message; some_data={} other_data={}", 123, "val1");
@@ -36,23 +36,23 @@ fn string_from(oss: OsString) -> Result<String, String> {
 ///   ```
 /// - Set the default log level to `info` and set the level for `chatty::module1` to `warn`.
 ///   ```
-///   let _global_logger_guard = configure_logging("info,chatty::module1=warn");
+///   let _global_logger_guard = configure_logging("prog1", "info,chatty::module1=warn");
 ///   ```
 /// - Use the environment variable to Override default default log level.
 ///   `module1` still gets its special log level.
 ///   ```
 ///   std::env::set_var("RUST_LOG", "debug");
-///   let _global_logger_guard = configure_logging("info,module1=warn")
+///   let _global_logger_guard = configure_logging("prog1", "info,module1=warn")
 ///   ```
 /// - Use the environment variable to set `module1` to `debug`.
 ///   ```
 ///   std::env::set_var("RUST_LOG", "module1=debug");
-///   let _global_logger_guard = configure_logging("info")
+///   let _global_logger_guard = configure_logging("prog1", "info")
 ///   ```
 ///
 /// Example output:
 /// ```json
-/// {"host":"mbp","process":"opinion","time_ns":1585851354242507000, \
+/// {"host":"mbp","process":"prog1","time_ns":1585851354242507000, \
 /// "time":"2020-04-02T18:15:54.242521000Z","module":"mod1","level":"ERROR","message":"msg1", \
 /// "thread":"main","x":2}
 /// ```
