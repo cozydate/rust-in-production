@@ -87,16 +87,24 @@ fn configure_logging(_process_name: &'static str, filters: &str)
             "process" => _process_name,
             "host" => _host,
         )).build();
-    #[cfg(debug_assertions)]
+    let _time_fn = |w: &mut dyn std::io::Write|
+        write!(w, "{}", chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+    #[cfg(debug_assertions)]  // Include the following statement in debug binaries, not release.
         let drain: Box<dyn slog::Drain<Ok=(), Err=std::io::Error> + Send> =
         match std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new()).as_ref() {
             "" | "json" => Box::new(drain),
-            "compact" =>
-                Box::new(slog_term::CompactFormat::new(slog_term::TermDecorator::new().build()).build()),
-            "full" => Box::new(slog_term::FullFormat::new(slog_term::TermDecorator::new().build()).build()),
-            "plain" =>
-                Box::new(slog_term::FullFormat::new(
-                    slog_term::PlainDecorator::new(std::io::stdout())).build()),
+            "compact" => Box::new(
+                slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
+            "full" => Box::new(
+                slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
+            "plain" => Box::new(
+                slog_term::FullFormat::new(slog_term::PlainDecorator::new(std::io::stdout()))
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
             s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s)
         };
     let drain = slog_envlogger::LogBuilder::new(drain)
@@ -170,14 +178,14 @@ fn main() {
     // {"host":"mbp","process":"opinion","time_ns":1586068677170857000,"time":"2020-04-05T06:37:57.170862000Z","module":"log_panics","level":"ERROR","message":"thread 'main' panicked at 'uhoh': src/bin/opinion.rs:161\n   0: backtrace::backtrace::trace_unsynchronized\n   1: backtrace::backtrace::trace\n   2: backtrace::capture::Backtrace::create\n   3: backtrace::capture::Backtrace::new\n   4: log_panics::init::{{closure}}\n   5: std::panicking::rust_panic_with_hook\n   6: std::panicking::begin_panic\n   7: opinion::main::{{closure}}\n   8: slog_scope::scope\n   9: opinion::thread_logging_scope\n  10: opinion::main\n  11: std::rt::lang_start::{{closure}}\n  12: std::panicking::try::do_call\n  13: __rust_maybe_catch_panic\n  14: std::rt::lang_start_internal\n  15: std::rt::lang_start\n  16: main\n","thread":"main"}
 
     // $ DEV_LOG_FORMAT=plain cargo run --bin opinion
-    // Apr 04 23:38:00.065 ERRO main, x: 2, thread: main
-    // Apr 04 23:38:00.066 WARN main, x: 2, thread: main
-    // Apr 04 23:38:00.066 INFO main, x: 2, thread: main
-    // Apr 04 23:38:00.066 INFO using_log 1, thread: main
-    // Apr 04 23:38:00.066 INFO using_log in thread 1
-    // Apr 04 23:38:00.066 INFO apple 1, x: 2, thread: main
-    // Apr 04 23:38:00.066 INFO apple in thread 1, x: 2, thread: apple
-    // Apr 04 23:38:00.089 ERRO thread 'main' panicked at 'uhoh': src/bin/opinion.rs:161
+    // 2020-04-05T00:37:48.675-07:00 ERRO main, x: 2, thread: main
+    // 2020-04-05T00:37:48.676-07:00 WARN main, x: 2, thread: main
+    // 2020-04-05T00:37:48.676-07:00 INFO main, x: 2, thread: main
+    // 2020-04-05T00:37:48.676-07:00 INFO using_log 1, thread: main
+    // 2020-04-05T00:37:48.676-07:00 INFO using_log in thread 1
+    // 2020-04-05T00:37:48.676-07:00 INFO apple 1, x: 2, thread: main
+    // 2020-04-05T00:37:48.676-07:00 INFO apple in thread 1, x: 2, thread: apple
+    // 2020-04-05T00:37:48.701-07:00 ERRO thread 'main' panicked at 'uhoh': src/bin/opinion.rs:167
     //    0: backtrace::backtrace::trace_unsynchronized
     //    1: backtrace::backtrace::trace
     //    2: backtrace::capture::Backtrace::create

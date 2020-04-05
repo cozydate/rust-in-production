@@ -4,16 +4,24 @@ use slog::info;
 
 fn main() {
     let drain = slog_json::Json::default(std::io::stdout());
-    #[cfg(debug_assertions)]
+    let _time_fn = |w: &mut dyn std::io::Write|
+        write!(w, "{}", chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+    #[cfg(debug_assertions)]  // Include the following statement in debug binaries, not release.
         let drain: Box<dyn slog::Drain<Ok=(), Err=std::io::Error> + Send> =
         match std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new()).as_ref() {
             "" | "json" => Box::new(drain),
-            "compact" =>
-                Box::new(slog_term::CompactFormat::new(slog_term::TermDecorator::new().build()).build()),
-            "full" => Box::new(slog_term::FullFormat::new(slog_term::TermDecorator::new().build()).build()),
-            "plain" =>
-                Box::new(slog_term::FullFormat::new(
-                    slog_term::PlainDecorator::new(std::io::stdout())).build()),
+            "compact" => Box::new(
+                slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
+            "full" => Box::new(
+                slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
+            "plain" => Box::new(
+                slog_term::FullFormat::new(slog_term::PlainDecorator::new(std::io::stdout()))
+                    .use_custom_timestamp(_time_fn)
+                    .build()),
             s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s)
         };
     let drain = slog_envlogger::LogBuilder::new(drain)
@@ -54,30 +62,30 @@ fn main() {
     // You can specify 'compact' to print scope variables on their own line and indent log
     // messages emitted inside the scope:
     // $ DEV_LOG_FORMAT=compact cargo run --bin dev_log_format
-    // Apr 04 23:30:01.578 INFO a message
+    // 2020-04-05T00:32:11.140-07:00 INFO a message
     // scope_var: 123
-    //  Apr 04 23:30:01.579 INFO message 1 inside scope
-    //  Apr 04 23:30:01.579 INFO message 2 inside scope
-    // Apr 04 23:30:01.579 INFO a message with some data, y: abc, x: 123
-    // Apr 04 23:30:01.579 INFO line 1
+    //  2020-04-05T00:32:11.140-07:00 INFO message 1 inside scope
+    //  2020-04-05T00:32:11.140-07:00 INFO message 2 inside scope
+    // 2020-04-05T00:32:11.140-07:00 INFO a message with some data, y: abc, x: 123
+    // 2020-04-05T00:32:11.141-07:00 INFO line 1
     //   line 2, x: 456
 
     // You can specify 'full' to print scope variables on every line, with color.
     // $ DEV_LOG_FORMAT=full cargo run --bin dev_log_format
-    // Apr 04 23:30:05.270 INFO a message
-    // Apr 04 23:30:05.271 INFO message 1 inside scope, scope_var: 123
-    // Apr 04 23:30:05.271 INFO message 2 inside scope, scope_var: 123
-    // Apr 04 23:30:05.271 INFO a message with some data, y: abc, x: 123
-    // Apr 04 23:30:05.271 INFO line 1
+    // 2020-04-05T00:32:26.725-07:00 INFO a message
+    // 2020-04-05T00:32:26.726-07:00 INFO message 1 inside scope, scope_var: 123
+    // 2020-04-05T00:32:26.726-07:00 INFO message 2 inside scope, scope_var: 123
+    // 2020-04-05T00:32:26.726-07:00 INFO a message with some data, y: abc, x: 123
+    // 2020-04-05T00:32:26.726-07:00 INFO line 1
     //   line 2, x: 456
 
     // You can specify 'plain' to print without color:
     // $ DEV_LOG_FORMAT=plain cargo run --bin dev_log_format
-    // Apr 04 23:30:08.525 INFO a message
-    // Apr 04 23:30:08.526 INFO message 1 inside scope, scope_var: 123
-    // Apr 04 23:30:08.526 INFO message 2 inside scope, scope_var: 123
-    // Apr 04 23:30:08.526 INFO a message with some data, y: abc, x: 123
-    // Apr 04 23:30:08.526 INFO line 1
+    // 2020-04-05T00:32:44.798-07:00 INFO a message
+    // 2020-04-05T00:32:44.798-07:00 INFO message 1 inside scope, scope_var: 123
+    // 2020-04-05T00:32:44.798-07:00 INFO message 2 inside scope, scope_var: 123
+    // 2020-04-05T00:32:44.798-07:00 INFO a message with some data, y: abc, x: 123
+    // 2020-04-05T00:32:44.798-07:00 INFO line 1
     //   line 2, x: 456
 
     // Release binaries ignore the environment variable and always log JSON.
