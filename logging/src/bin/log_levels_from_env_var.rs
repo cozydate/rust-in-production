@@ -1,15 +1,12 @@
 use std::sync::Mutex;
 
-use slog::{debug, FilterLevel, info};
+use slog::{debug, info};
 
 fn main() {
     let drain = slog_json::Json::default(std::io::stdout());
     let drain = slog_envlogger::LogBuilder::new(drain)
-        // Default level
-        .filter(Option::None, FilterLevel::Debug)
-        // Per-module default levels
-        .filter(Some("logging::apple"), FilterLevel::Debug)
-        .filter(Some("logging::banana"), FilterLevel::Info)
+        // Default levels
+        .parse("debug,logging::apple=debug,logging::banana=info")
         // Add any level overrides from environment variable
         .parse(&std::env::var("RUST_LOG").unwrap_or(String::new()))
         .build();
