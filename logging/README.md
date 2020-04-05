@@ -6,6 +6,7 @@ That code does a lot of things.  Here are the things split into separate binarie
 - [`log_level_in_code.rs`](src/bin/log_level_in_code.rs)
 - [`log_levels_in_code.rs`](src/bin/log_levels_in_code.rs)
 - [`log_levels_from_env_var.rs`](src/bin/log_levels_from_env_var.rs)
+- [`dev_log_format.rs`](src/bin/dev_log_format.rs)
 - [`default_json.rs`](src/bin/default_json.rs)
 - [`custom_json.rs`](src/bin/custom_json.rs)
 
