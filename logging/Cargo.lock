@@ -310,6 +310,7 @@ dependencies = [
  "slog-json",
  "slog-scope",
  "slog-stdlog",
+ "slog-term",
 ]
 
 [[package]]
