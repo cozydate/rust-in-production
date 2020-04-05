@@ -38,7 +38,7 @@ fn string_from(oss: OsString) -> Result<String, String> {
 ///   ```
 ///   let _global_logger_guard = configure_logging("prog1", "info,chatty::module1=warn");
 ///   ```
-/// - Use the environment variable to Override default default log level.
+/// - Use the environment variable to override default log level.
 ///   `module1` still gets its special log level.
 ///   ```
 ///   std::env::set_var("RUST_LOG", "debug");
