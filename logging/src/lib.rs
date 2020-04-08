@@ -1,14 +1,8 @@
 use std::error::Error;
-use std::ffi::OsString;
 
 pub mod using_log;
 pub mod apple;
 pub mod banana;
-
-pub fn string_from(oss: OsString) -> Result<String, String> {
-    oss.into_string().map_err(
-        |oss| std::format!("Error decoding OsString {:?} to String", oss))
-}
 
 /// Configure `log` and `slog` to emit JSON to stdout.
 ///
@@ -30,7 +24,7 @@ pub fn string_from(oss: OsString) -> Result<String, String> {
 /// - Set the default log level to `info`.
 ///   The program will emit log messages with level `info` and higher.
 ///   ```
-///   let _global_logger_guard = logging::configure("prog1", "info");
+///   let _global_logger_guard = logging::configure("info");
 ///   logging::info!("a message"; "some_data" => 123, "other_data" => "val1");
 ///   slog::info!(slog_scope::logger(), "a message"; "some_data" => 123, "other_data" => "val1");
 ///   log::info!("a message; some_data={} other_data={}", 123, "val1");
@@ -38,30 +32,27 @@ pub fn string_from(oss: OsString) -> Result<String, String> {
 ///   ```
 /// - Set the default log level to `info` and set the level for `chatty::module1` to `warn`.
 ///   ```
-///   let _global_logger_guard = logging::configure("prog1", "info,chatty::module1=warn");
+///   let _global_logger_guard = logging::configure("info,chatty::module1=warn");
 ///   ```
 /// - Use the environment variable to override default log level.
 ///   `module1` still gets its special log level.
 ///   ```
 ///   std::env::set_var("RUST_LOG", "debug");
-///   let _global_logger_guard = logging::configure("prog1", "info,module1=warn");
+///   let _global_logger_guard = logging::configure("info,module1=warn");
 ///   ```
 /// - Use the environment variable to set `module1` to `debug`.
 ///   ```
 ///   std::env::set_var("RUST_LOG", "module1=debug");
-///   let _global_logger_guard = logging::configure("prog1", "info");
+///   let _global_logger_guard = logging::configure("info");
 ///   ```
 ///
 /// Example output:
 /// ```json
-/// {"host":"mbp","process":"prog1","time_ns":1585851354242507000, \
-/// "time":"2020-04-02T18:15:54.242521000Z","module":"mod1","level":"ERROR","message":"msg1", \
-/// "thread":"main","x":2}
+/// {"time_ns":1585851354242507000, "time":"2020-04-02T18:15:54.242521000Z", \
+/// "module":"mod1","level":"ERROR","message":"msg1", "thread":"main","x":2}
 /// ```
-pub fn configure(_process_name: &'static str, filters: &str)
-                 -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
+pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
 {
-    let _host = string_from(::hostname::get()?)?;
     let _time_fn =
         |_: &slog::Record|
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
@@ -95,8 +86,8 @@ pub fn configure(_process_name: &'static str, filters: &str)
             "module" => slog::FnValue(_module_fn),
             "time" => slog::FnValue(_time_fn),
             "time_ns" => slog::FnValue(_time_ns_fn),
-            "process" => _process_name,
-            "host" => _host,
+            // TODONT(mleonhard) Don't include 'process' or 'host'.  Supervisor and collector will
+            // add these values and will not trust any values already present.
         )).build();
     let _time_fn = |w: &mut dyn std::io::Write|
         write!(w, "{}", chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));

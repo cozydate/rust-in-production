@@ -5,7 +5,6 @@ use slog::{debug, error, FnValue, info, Level, trace, warn};
 
 fn main() {
     // https://github.com/slog-rs/bunyan/blob/master/lib.rs
-    let host = hostname::get().unwrap_or_default().into_string().unwrap_or_default();
     let time_fn =
         |_: &slog::Record|
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
@@ -39,8 +38,8 @@ fn main() {
             "module" => FnValue(module_fn),
             "time" => FnValue(time_fn),
             "time_ns" => FnValue(time_ns_fn),
-            "process" => "custom_json",
-            "host" => host,
+            // TODONT(mleonhard) Don't include 'process' or 'host'.  Supervisor and collector will
+            // add these values and will not trust any values already present.
         )).build();
     let drain = slog::Fuse(Mutex::new(drain));
     let drain = slog::Fuse(slog_async::Async::default(drain));
@@ -63,13 +62,13 @@ fn main() {
     });
 
     // $ cargo run --bin custom_json
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242507000,"time":"2020-04-02T18:15:54.242521000Z","module":"custom_json","level":"ERROR","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242732000,"time":"2020-04-02T18:15:54.242734000Z","module":"custom_json","level":"WARN","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242789000,"time":"2020-04-02T18:15:54.242791000Z","module":"custom_json","level":"INFO","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242824000,"time":"2020-04-02T18:15:54.242825000Z","module":"custom_json","level":"DEBUG","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242854000,"time":"2020-04-02T18:15:54.242855000Z","module":"custom_json","level":"TRACE","message":"main","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242925000,"time":"2020-04-02T18:15:54.242926000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242953000,"time":"2020-04-02T18:15:54.242954000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354242980000,"time":"2020-04-02T18:15:54.242981000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
-    // {"host":"mbp","process":"custom_json","time_ns":1585851354243009000,"time":"2020-04-02T18:15:54.243010000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
+    // {"time_ns":1586384276407166000,"time":"2020-04-08T22:17:56.407195000Z","module":"custom_json","level":"ERROR","message":"main","thread":"main","x":2}
+    // {"time_ns":1586384276407298000,"time":"2020-04-08T22:17:56.407300000Z","module":"custom_json","level":"WARN","message":"main","thread":"main","x":2}
+    // {"time_ns":1586384276407329000,"time":"2020-04-08T22:17:56.407331000Z","module":"custom_json","level":"INFO","message":"main","thread":"main","x":2}
+    // {"time_ns":1586384276407362000,"time":"2020-04-08T22:17:56.407363000Z","module":"custom_json","level":"DEBUG","message":"main","thread":"main","x":2}
+    // {"time_ns":1586384276407389000,"time":"2020-04-08T22:17:56.407391000Z","module":"custom_json","level":"TRACE","message":"main","thread":"main","x":2}
+    // {"time_ns":1586384276407417000,"time":"2020-04-08T22:17:56.407418000Z","module":"logging::using_log","level":"INFO","message":"using_log 1","thread":"main"}
+    // {"time_ns":1586384276407443000,"time":"2020-04-08T22:17:56.407444000Z","module":"logging::using_log","level":"INFO","message":"using_log in thread 1"}
+    // {"time_ns":1586384276407468000,"time":"2020-04-08T22:17:56.407469000Z","module":"logging::apple","level":"INFO","message":"apple 1","thread":"main","x":2}
+    // {"time_ns":1586384276407495000,"time":"2020-04-08T22:17:56.407496000Z","module":"logging::apple","level":"INFO","message":"apple in thread 1","thread":"apple","x":2}
 }
