@@ -1,6 +1,6 @@
 # logging
 
-Opinion: Do logging like [`opinion.rs`](src/bin/opinion.rs) .
+Opinion: Do logging like [`opinion.rs`](src/bin/opinion.rs) which uses [`lib.rs`](src/lib.rs).
 
 That code does a lot of things.  Here are the things split into separate binaries:
 - [`default_log_levels.rs`](src/bin/default_log_levels.rs)
