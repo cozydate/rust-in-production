@@ -1,4 +1,7 @@
 use std::error::Error;
+use std::future::Future;
+
+use slog::Logger;
 
 pub mod using_log;
 pub mod apple;
@@ -125,14 +128,23 @@ pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn
     let logger = slog::Logger::root(drain, slog::o!());
     let _guard = slog_scope::set_global_logger(logger);
     slog_stdlog::init()?;
-    log_panics::init();
+    //log_panics::init();
     Ok(_guard)
 }
 
-pub fn thread_scope<SF, R>(_name: &str, f: SF) -> R
+pub fn thread_scope<SF, R>(name: &str, f: SF) -> R
     where SF: FnOnce() -> R {
+    let _name = name;
     let logger = slog_scope::logger().new(slog::o!("thread" => String::from(_name)));
     slog_scope::scope(&logger, f)
+}
+
+pub fn task_scope<F>(name: &'static str, f: F) -> slog_scope_futures::SlogScope<Logger, F>
+    where F: Future {
+    let _name = name;
+    slog_scope_futures::SlogScope::new(
+        slog_scope::logger().new(slog::o!("task" => _name)),
+        f)
 }
 
 #[macro_export]
