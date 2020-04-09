@@ -12,5 +12,5 @@ That code does a lot of things.  Here are the things split into separate binarie
 More info:
 - [Hyper web server based on tokio](https://hyper.rs)
 - [Tokio asynchronous framework](https://tokio.rs)
-- [Crate slog](https://crates.io/crates/slog-scope-futures)
+- [Crate slog](https://crates.io/crates/slog)
 - [Crate slog-scope-futures](https://crates.io/crates/slog-scope-futures)

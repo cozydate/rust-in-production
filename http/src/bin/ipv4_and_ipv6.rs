@@ -19,6 +19,7 @@ async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
 pub async fn main() -> () {
     let addr = std::net::SocketAddr::from(
         (std::net::Ipv6Addr::UNSPECIFIED /* includes ipv4 */, 1690));
+
     let make_svc = make_service_fn(|_conn| {
         async { Ok::<_, Infallible>(service_fn(hello)) }
     });
