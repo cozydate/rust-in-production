@@ -7,17 +7,17 @@ async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
     Ok(Response::new(Body::from("Hello World!")))
 }
 
-pub async fn wait_for_sigterm() {
+pub async fn wait_for_stop_signal() {
     // Handle TERM signal for running in Docker, Kubernetes, supervisord, etc.
     // Also handle INT signal from CTRL-C in dev terminal.
     use tokio::signal::unix::{signal, SignalKind};
-    let term_signal = signal(SignalKind::terminate())
+    let mut term_signal = signal(SignalKind::terminate())
         .expect("Failed installing TERM signal handler");
-    let int_signal = signal(SignalKind::interrupt())
+    let mut int_signal = signal(SignalKind::interrupt())
         .expect("Failed installing INT signal handler");
-    // https://docs.rs/tokio/0.2.16/tokio/stream/trait.StreamExt.html#method.merge
     use tokio::stream::StreamExt;
-    term_signal.merge(int_signal).next().await;
+    futures::future::select(term_signal.next(), int_signal.next()).await;
+    println!("Server stopping");
 }
 
 #[tokio::main]
@@ -28,19 +28,21 @@ pub async fn main() -> () {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
     let server = Server::bind(&addr)
         .serve(make_svc)
-        .with_graceful_shutdown(wait_for_sigterm());
+        .with_graceful_shutdown(wait_for_stop_signal());
     println!("Listening on http://{}", addr);
     server.await.unwrap();
-    println!("Exiting.");
+    println!("Server stopped.");
 
     // $ cargo run --bin graceful_shutdown
     // Listening on http://127.0.0.1:1690
-    // ^CExiting.
+    // ^CServer stopping
+    // Server stopped.
 
 
     // $ cargo run --bin graceful_shutdown
     // Listening on http://127.0.0.1:1690
-    // Exiting.
+    // Server stopping
+    // Server stopped.
 
     // $ pkill graceful_shutdown
 }
