@@ -76,10 +76,10 @@ pub async fn main() -> () {
 
     // Client is streaming request when server starts shutdown.  Should finish streaming.
     tokio::spawn(http_get("http://127.0.0.1:1690"));
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
     println!("Sending TERM signal to self");
     nix::sys::signal::kill(nix::unistd::getpid(), nix::sys::signal::SIGTERM).unwrap();
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
     http_get("http://127.0.0.1:1690").await;  // Connection refused.
     server_handle.await.unwrap();
     println!("Done.");
