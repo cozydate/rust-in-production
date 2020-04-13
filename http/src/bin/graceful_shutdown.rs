@@ -1,7 +1,23 @@
 use std::convert::Infallible;
 
-use hyper::{Body, Request, Response, Server};
+use hyper::{Body, Client, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
+
+async fn http_get(url: &str) {
+    let url: hyper::Uri = url.parse().unwrap();
+    println!("GET {}", url);
+    let mut response = match Client::new().get(url).await {
+        Ok(response) => response,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
+    match hyper::body::to_bytes(response.body_mut()).await {
+        Ok(bytes) => println!("{} {:?}", response.status(), bytes),
+        Err(e) => println!("Error: {}", e),
+    };
+}
 
 async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
     Ok(Response::new(Body::from("Hello World!\n")))
@@ -30,22 +46,39 @@ pub async fn main() -> () {
         .serve(make_svc)
         .with_graceful_shutdown(wait_for_stop_signal());
     println!("Listening on http://{}", addr);
-    server.await.unwrap();
-    println!("Server stopped.");
+    let server_handle = tokio::spawn(async move {
+        server.await.unwrap();
+        println!("Server stopped.");
+    });
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    http_get("http://127.0.0.1:1690").await;
+    println!("Sending TERM signal to self");
+    nix::sys::signal::kill(nix::unistd::getpid(), nix::sys::signal::SIGTERM).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    http_get("http://127.0.0.1:1690").await;  // Connection refused.
+    server_handle.await.unwrap();
+    println!("Done.");
+
+    // $ cargo run --bin graceful_shutdown
+    // Listening on http://127.0.0.1:1690
+    // GET http://127.0.0.1:1690/
+    // 200 OK b"Hello World!\n"
+    // Sending TERM signal to self
+    // Server stopping
+    // Server stopped.
+    // GET http://127.0.0.1:1690/
+    // Error: error trying to connect: tcp connect error: Connection refused (os error 61)
+    // Done.
 
     // $ cargo run --bin graceful_shutdown
     // Listening on http://127.0.0.1:1690
     // ^CServer stopping
     // Server stopped.
-
-    // $ cargo run --bin graceful_shutdown
-    // Listening on http://127.0.0.1:1690
-    // Server stopping
-    // Server stopped.
-
-    // $ curl http://127.0.0.1:1690/
-    // Hello World!
-    // $ pkill graceful_shutdown
-    // $ curl http://127.0.0.1:1690/
-    // curl: (7) Failed to connect to 127.0.0.1 port 1690: Connection refused
+    // GET http://127.0.0.1:1690/
+    // Error: error trying to connect: tcp connect error: Connection refused (os error 61)
+    // Sending TERM signal to self
+    // GET http://127.0.0.1:1690/
+    // Error: error trying to connect: tcp connect error: Connection refused (os error 61)
+    // Done.
 }
