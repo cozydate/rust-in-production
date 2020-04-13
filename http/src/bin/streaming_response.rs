@@ -47,7 +47,7 @@ async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
     Ok(Response::new(Body::wrap_stream(as_results)))
 }
 
-pub async fn wait_for_stop_signal(stop_rx: tokio::sync::oneshot::Receiver<()>) {
+pub async fn wait_for_stop_signal() {
     // Handle TERM signal for running in Docker, Kubernetes, supervisord, etc.
     // Also handle INT signal from CTRL-C in dev terminal.
     use tokio::signal::unix::{signal, SignalKind};
@@ -55,10 +55,7 @@ pub async fn wait_for_stop_signal(stop_rx: tokio::sync::oneshot::Receiver<()>) {
         .expect("Failed installing TERM signal handler");
     let mut int_signal = signal(SignalKind::interrupt())
         .expect("Failed installing INT signal handler");
-    futures::future::select(
-        stop_rx,
-        futures::future::select(term_signal.next(), int_signal.next()))
-        .await;
+    futures::future::select(term_signal.next(), int_signal.next()).await;
     println!("Server stopping");
 }
 
@@ -68,10 +65,9 @@ pub async fn main() -> () {
     let make_svc = make_service_fn(|_conn| {
         async { Ok::<_, Infallible>(service_fn(hello)) }
     });
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let server = Server::bind(&addr)
         .serve(make_svc)
-        .with_graceful_shutdown(wait_for_stop_signal(stop_rx));
+        .with_graceful_shutdown(wait_for_stop_signal());
     println!("Listening on {}", &addr);
     let server_handle = tokio::spawn(async move {
         server.await.unwrap();
@@ -81,8 +77,8 @@ pub async fn main() -> () {
     // Client is streaming request when server starts shutdown.  Should finish streaming.
     tokio::spawn(http_get("http://127.0.0.1:1690"));
     std::thread::sleep(std::time::Duration::from_secs(1));
-    println!("Sending stop signal");
-    stop_tx.send(()).unwrap();
+    println!("Sending TERM signal");
+    nix::sys::signal::kill(nix::unistd::getpid(), nix::sys::signal::SIGTERM).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
     http_get("http://127.0.0.1:1690").await;  // Connection refused.
     server_handle.await.unwrap();
@@ -94,7 +90,7 @@ pub async fn main() -> () {
     // Result 200 OK
     // chunk b"Start:\n"
     // chunk b"0\n"
-    // Sending stop signal
+    // Sending TERM signal
     // Server stopping
     // chunk b"1\n"
     // Get http://127.0.0.1:1690/
