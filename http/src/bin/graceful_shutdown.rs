@@ -4,7 +4,7 @@ use hyper::{Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 
 async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
-    Ok(Response::new(Body::from("Hello World!")))
+    Ok(Response::new(Body::from("Hello World!\n")))
 }
 
 pub async fn wait_for_stop_signal() {
@@ -38,11 +38,14 @@ pub async fn main() -> () {
     // ^CServer stopping
     // Server stopped.
 
-
     // $ cargo run --bin graceful_shutdown
     // Listening on http://127.0.0.1:1690
     // Server stopping
     // Server stopped.
 
+    // $ curl http://127.0.0.1:1690/
+    // Hello World!
     // $ pkill graceful_shutdown
+    // $ curl http://127.0.0.1:1690/
+    // curl: (7) Failed to connect to 127.0.0.1 port 1690: Connection refused
 }
