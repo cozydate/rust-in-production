@@ -6,9 +6,17 @@ use hyper::service::{make_service_fn, service_fn};
 async fn http_get(url: &str) {
     let url: hyper::Uri = url.parse().unwrap();
     println!("GET {}", url);
-    let mut response = Client::new().get(url).await.unwrap();
-    let _body = hyper::body::to_bytes(response.body_mut()).await.unwrap();
-    println!("{} {:?}", response.status(), _body);
+    let mut response = match Client::new().get(url).await {
+        Ok(response) => response,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
+    match hyper::body::to_bytes(response.body_mut()).await {
+        Ok(bytes) => println!("{} {:?}", response.status(), bytes),
+        Err(e) => println!("Error: {}", e),
+    };
 }
 
 async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {

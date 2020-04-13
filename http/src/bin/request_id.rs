@@ -6,9 +6,17 @@ use hyper::service::{make_service_fn, service_fn};
 async fn http_get(url: &str) {
     let url: hyper::Uri = url.parse().unwrap();
     logging::info!("GET {}", url);
-    let mut response = Client::new().get(url).await.unwrap();
-    let _body = hyper::body::to_bytes(response.body_mut()).await.unwrap();
-    logging::info!("{} {:?}", response.status(), _body);
+    let mut response = match Client::new().get(url).await {
+        Ok(response) => response,
+        Err(e) => {
+            logging::error!("{}", e);
+            return;
+        }
+    };
+    match hyper::body::to_bytes(response.body_mut()).await {
+        Ok(bytes) => logging::info!("{} {:?}", response.status(), bytes),
+        Err(e) => logging::error!("{}", e),
+    };
 }
 
 pub fn random_id(len: usize) -> String {
