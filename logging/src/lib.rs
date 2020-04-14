@@ -128,7 +128,7 @@ pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn
     let logger = slog::Logger::root(drain, slog::o!());
     let _guard = slog_scope::set_global_logger(logger);
     slog_stdlog::init()?;
-    //log_panics::init();
+    log_panics::init();
     Ok(_guard)
 }
 
