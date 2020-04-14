@@ -43,50 +43,46 @@ async fn handle_request(_: Request<Body>) -> Result<Response<Body>, Infallible> 
 
 #[tokio::main]
 pub async fn main() -> () {
-    let _global_logger_guard = logging::configure("info").unwrap();
-    let (up_tx, up_rx) = tokio::sync::oneshot::channel::<()>();
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    // Leak the global logger guard so it will never get dropped.
+    //
+    // Without this, main() drops the guard when it returns, removing the global logger.  After
+    // that, any task or thread that tries to log anything will panic.  The panic logger will try
+    // to log the panic and will itself panic.  This causes a strange error on shutdown:
+    //    thread panicked while processing panic. aborting.
+    //    Illegal instruction: 4
+    //
+    // A cleaner workaround is to ensure that all tasks stop before returning from main().  That is
+    // often not achievable with timely shutdown.
+    Box::leak(Box::new(logging::configure("info").unwrap()));
+    //let _global_logger_guard = logging::configure("info").unwrap();
 
-    let server_handle = tokio::spawn(
-        logging::task_scope("server", async move {
-            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
-            let make_svc = make_service_fn(|_conn| {
-                async { Ok::<_, Infallible>(service_fn(handle_request)) }
-            });
-            let server = Server::bind(&addr)
-                .serve(make_svc)
-                .with_graceful_shutdown(async { stop_rx.await.unwrap(); });
-            logging::info!("Listening on {}", addr);
-            up_tx.send(()).unwrap();
-            server.await.unwrap();
-            logging::info!("Stopped");
-        }));
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
+    let make_svc = make_service_fn(|_conn| {
+        async { Ok::<_, Infallible>(service_fn(handle_request)) }
+    });
+    let server = Server::bind(&addr).serve(make_svc);
+    logging::info!("Listening on {}", addr);
+    tokio::spawn(server);
 
-    logging::task_scope("client", async {
-        up_rx.await.unwrap();
+    logging::task_scope("client-1", async {
         http_get("http://127.0.0.1:1690").await;
-        http_get("http://127.0.0.1:1690").await;
-        logging::info!("Done");
     }).await;
 
-    // We must wait for all tasks to stop before returning.  If we return too soon,
-    // `_global_logger_guard` gets dropped which removes the global logger.  After that, any running
-    // thread that tries to log anything will panic.  Then the panic logger will try to log the
-    // panic, and will itself panic.  This causes a strange "panic inside panic" error on shutdown.
-    // The solution is to that ensure all tasks are stop before returning from main().
-    stop_tx.send(()).unwrap();
-    server_handle.await.unwrap();
+    tokio::task::spawn_blocking(|| {
+        logging::thread_scope("background", || {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            logging::info!("background work");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        });
+    });
+
     logging::info!("Exiting");
 
     // $ DEV_LOG_FORMAT=plain cargo run --bin request_id
-    // 2020-04-09T13:49:16.230-07:00 INFO Listening on 127.0.0.1:1690, task: server
-    // 2020-04-09T13:49:16.230-07:00 INFO GET http://127.0.0.1:1690/, task: client
-    // 2020-04-09T13:49:16.231-07:00 INFO Handling request, request_id: 6CZ3NM6M
-    // 2020-04-09T13:49:16.232-07:00 INFO 200 OK b"Hello World!\n", task: client
-    // 2020-04-09T13:49:16.232-07:00 INFO GET http://127.0.0.1:1690/, task: client
-    // 2020-04-09T13:49:16.233-07:00 INFO Handling request, request_id: NHH7X1KF
-    // 2020-04-09T13:49:16.233-07:00 INFO 200 OK b"Hello World!\n", task: client
-    // 2020-04-09T13:49:16.233-07:00 INFO Done, task: client
-    // 2020-04-09T13:49:16.233-07:00 INFO Stopped, task: server
-    // 2020-04-09T13:49:16.233-07:00 INFO Exiting
+    // 2020-04-13T17:25:22.207-07:00 INFO Listening on 127.0.0.1:1690
+    // 2020-04-13T17:25:22.208-07:00 INFO GET http://127.0.0.1:1690/, task: client-1
+    // 2020-04-13T17:25:22.210-07:00 INFO Handling request, request_id: JCJGR2F7
+    // 2020-04-13T17:25:22.210-07:00 INFO 200 OK b"Hello World!\n", task: client-1
+    // 2020-04-13T17:25:22.211-07:00 INFO Exiting
+    // 2020-04-13T17:25:23.212-07:00 INFO background work, thread: background
 }
