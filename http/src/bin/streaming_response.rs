@@ -59,7 +59,7 @@ pub async fn wait_for_stop_signal() {
     println!("Server stopping");
 }
 
-#[tokio::main]  // Sets up executor.  Waits for all tasks to finish before exiting the process.
+#[tokio::main]
 pub async fn main() -> () {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
     let make_svc = make_service_fn(|_conn| {
