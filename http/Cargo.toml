@@ -7,17 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1.30"
 futures = "0.3.4"
-logging = { path = "../logging" }
 http-body = "0.3.1"
 hyper = { version = "0.13.4", features = ["stream"] }
+logging = { path = "../logging" }
 nix = "0.17.0"
 rand = "0.7.3"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_debug"] }
 slog-scope = "4.3.0"
 slog-scope-futures = "0.1.1"
 tokio = { version = "0.2.18", features = ["full"] }
-
-#tokio-rustls = "0.13.0"
-#hyper-rustls = "0.20.0"
-#rustls = "0.17.0"
