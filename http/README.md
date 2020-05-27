@@ -15,9 +15,16 @@ That code does a lot of things.  Here are the things split into separate binarie
 - [`port.rs`](src/bin/port.rs)
 - [`request_id.rs`](src/bin/request_id.rs)
 
+
+https://crates.io/crates/webpki
+
+https://rust-unofficial.github.io/too-many-lists/third.html
+
+
 More info:
 - [Hyper web server based on tokio](https://hyper.rs)
 - [Tokio asynchronous framework](https://tokio.rs)
+- [Crate hyper-native-tls](https://crates.io/crates/hyper-native-tls)
 - [Crate slog](https://crates.io/crates/slog)
 - [Crate slog-scope-futures](https://crates.io/crates/slog-scope-futures)
 - [IntelliJ - Code completion not working for some tokio modules](https://github.com/intellij-rust/intellij-rust/issues/4706#issuecomment-608987405)

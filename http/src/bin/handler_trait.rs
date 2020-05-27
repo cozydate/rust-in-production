@@ -72,17 +72,7 @@ impl HttpSessionHandler for Handler {
 pub async fn async_main() -> () {
     let _http_server = HttpServerBuilder::new(1690)
         .all_interfaces()
-        // On 2020-05-08, mleonhard could not get this to take an async closure:
-        //
-        // error[E0277]: the size for values of type `dyn std::future::Future<Output = ()>` cannot be known at compilation time
-        //   |session: HttpSession| async move {
-        //                          ^ doesn't have a size known at compile-time
-        //
-        // error[E0658]: async closures are unstable, see https://github.com/rust-lang/rust/issues/62290
-        //   async move |session: HttpSession| {
-        //   ^^^^^
-        //
-        // The ugly workaround is to use an async trait.
+        // TODO(mleonhard) Make this take an async closure once they are stable, https://github.com/rust-lang/rust/issues/62290
         .run(Arc::new(Handler {}))
         .await.unwrap();
     tokio::net::TcpStream::connect("127.0.0.1:1690").await.unwrap();

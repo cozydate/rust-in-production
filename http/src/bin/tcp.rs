@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use logging::info;
+use logging::{info, warn};
 
 #[derive(Debug)]
 pub struct HttpSession {
@@ -13,9 +13,19 @@ pub struct HttpServer {
 }
 
 impl HttpServer {
-    pub async fn next(&mut self) -> Option<HttpSession> {
-        let (tcp_stream, addr) = self.listener.accept().await.unwrap();
-        Some(HttpSession { tcp_stream, addr })
+    pub async fn next(&mut self) -> HttpSession {
+        loop {
+            match self.listener.accept().await {
+                Ok((tcp_stream, addr)) => {
+                    return HttpSession { tcp_stream, addr };
+                }
+                Err(e) => {
+                    warn!("Failed accepting connection from socket: {:?}", e);
+                    tokio::time::delay_for(std::time::Duration::from_secs(1)).
+                        await;
+                }
+            }
+        }
     }
 }
 
@@ -69,10 +79,10 @@ pub async fn async_main() -> () {
     let handler = Arc::new(Handler {});
     tokio::spawn(async move {
         loop {
-            let session = http_server.next().await.unwrap();
+            let http_session = http_server.next().await;
             let handler_clone = handler.clone();
             tokio::spawn(async move {
-                handler_clone.handle(session).await;
+                handler_clone.handle(http_session).await;
             });
         }
     });
