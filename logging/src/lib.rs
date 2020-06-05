@@ -7,6 +7,13 @@ pub mod using_log;
 pub mod apple;
 pub mod banana;
 
+pub enum OutputFormat {
+    JSON,
+    Compact,
+    Full,
+    Plain,
+}
+
 /// Configure `log` and `slog` to emit JSON to stdout.
 ///
 /// Applies global and per-module filtering rules from `filters` and overrides them with
@@ -56,6 +63,31 @@ pub mod banana;
 /// ```
 pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
 {
+    let format = OutputFormat::JSON;
+    #[cfg(debug_assertions)]  // Include the following statement in debug binaries, not release.
+        let format =
+        match std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new()).as_ref() {
+            "" | "json" => format,
+            "compact" => OutputFormat::Compact,
+            "full" => OutputFormat::Full,
+            "plain" => OutputFormat::Plain,
+            s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s)
+        };
+    configure_inner(filters, format)
+}
+
+/// Configures `log` and `slog` to emit to stdout with "plain" format.
+/// Can be called multiple times from different threads.
+/// Each call leaks a `GlobalLoggerGuard` which contains only a `bool`.
+pub fn configure_for_test(filters: &str) -> Result<(), Box<dyn Error>>
+{
+    let global_logger_guard = configure_inner(filters, OutputFormat::Plain)?;
+    Box::leak(Box::new(global_logger_guard));
+    Ok(())
+}
+
+fn configure_inner(filters: &str, output_format: OutputFormat) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
+{
     let _time_fn =
         |_: &slog::Record|
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
@@ -81,36 +113,38 @@ pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn
     let _message_fn =
         |record: &slog::Record|
             record.msg().to_string();
-    let drain = slog_json::Json::new(std::io::stdout())
-        .add_key_value(slog::o!(
-            // Fields are in reverse order.
-            "message" => slog::FnValue(_message_fn),
-            "level" => slog::FnValue(_level_fn),
-            "module" => slog::FnValue(_module_fn),
-            "time" => slog::FnValue(_time_fn),
-            "time_ns" => slog::FnValue(_time_ns_fn),
-            // TODONT(mleonhard) Don't include 'process' or 'host'.  Supervisor and collector will
-            // add these values and will not trust any values already present.
-        )).build();
-    let _time_fn = |w: &mut dyn std::io::Write|
-        write!(w, "{}", chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
-    #[cfg(debug_assertions)]  // Include the following statement in debug binaries, not release.
-        let drain: Box<dyn slog::Drain<Ok=(), Err=std::io::Error> + Send> =
-        match std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new()).as_ref() {
-            "" | "json" => Box::new(drain),
-            "compact" => Box::new(
+    let _time_fn =
+        |_record: &slog::Record|
+            chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let _write_timestamp_fn = |w: &mut dyn std::io::Write|
+        w.write(chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true).as_bytes())
+            .map(|_| ());
+    let drain: Box<dyn slog::Drain<Ok=(), Err=std::io::Error> + Send> =
+        match output_format {
+            OutputFormat::JSON => (Box::new(
+                slog_json::Json::new(std::io::stdout())
+                    .add_key_value(slog::o!(
+                        // Fields are in reverse order.
+                        "message" => slog::FnValue(_message_fn),
+                        "level" => slog::FnValue(_level_fn),
+                        "module" => slog::FnValue(_module_fn),
+                        "time" => slog::FnValue(_time_fn),
+                        "time_ns" => slog::FnValue(_time_ns_fn),
+                        // TODONT(mleonhard) Don't include 'process' or 'host'.  Supervisor and collector will
+                        // add these values and will not trust any values already present.
+                    )).build())),
+            OutputFormat::Compact => Box::new(
                 slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
-                    .use_custom_timestamp(_time_fn)
+                    .use_custom_timestamp(_write_timestamp_fn)
                     .build()),
-            "full" => Box::new(
+            OutputFormat::Full => Box::new(
                 slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
-                    .use_custom_timestamp(_time_fn)
+                    .use_custom_timestamp(_write_timestamp_fn)
                     .build()),
-            "plain" => Box::new(
+            OutputFormat::Plain => Box::new(
                 slog_term::FullFormat::new(slog_term::PlainDecorator::new(std::io::stdout()))
-                    .use_custom_timestamp(_time_fn)
-                    .build()),
-            s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s)
+                    .use_custom_timestamp(_write_timestamp_fn)
+                    .build())
         };
     let drain = slog_envlogger::LogBuilder::new(drain)
         .parse(filters)
