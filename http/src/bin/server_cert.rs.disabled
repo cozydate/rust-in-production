@@ -1,0 +1,218 @@
+// Tower-Web supports configuring rustls, can probably support client certs.
+// https://github.com/carllerche/tower-web/blob/master/examples/rustls/src/main.rs
+// https://github.com/ctz/hyper-rustls/blob/master/examples/server.rs
+// https://docs.rs/rustls/0.17.0/rustls/trait.ServerCertVerifier.html
+// https://docs.rs/tokio/0.2.17/tokio/net/struct.TcpListener.html
+
+// https://github.com/seanmonstar/warp/blob/master/src/tls.rs
+// https://docs.rs/tokio-rustls/0.13.0/tokio_rustls/struct.TlsAcceptor.html
+
+// https://github.com/jbaublitz/miss-demeanor/blob/89de7871c376170a49bbc1d50aec09f1ef78e741/src/webhook.rs
+// https://gist.github.com/jonhere/75fc1930f143889fed02c2bbaccfad2f
+// https://github.com/ctz/rustls/blob/master/rustls-mio/examples/tlsserver.rs
+// https://github.com/passcod/certainly/blob/main/src/main.rs
+// https://ayende.com/blog/185730-A/using-tls-with-rust-part-ii-client-authentication
+
+// Client:
+// https://docs.rs/hyper-rustls/0.20.0/hyper_rustls/
+// https://github.com/ctz/rustls/blob/master/rustls-mio/examples/tlsclient.rs
+// https://github.com/ctz/rustls/blob/master/rustls-mio/examples/simpleclient.rs
+// https://docs.rs/rustls/0.17.0/rustls/trait.ClientCertVerifier.html
+
+// Support client certs in Rocket: https://github.com/SergioBenitez/Rocket/issues/254
+
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::Cell;
+// // Load public certificate from file.
+// fn load_certs(filename: &str) -> io::Result<Vec<rustls::Certificate>> {
+//     // Open certificate file.
+//     let certfile = fs::File::open(filename)
+//         .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
+//     let mut reader = io::BufReader::new(certfile);
+//
+//     // Load and return certificate.
+//     pemfile::certs(&mut reader).map_err(|_| error("failed to load certificate".into()))
+// }
+//
+// // Load private key from file.
+// fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
+//     // Open keyfile.
+//     let keyfile = fs::File::open(filename)
+//         .map_err(|e| error(format!("failed to open {}: {}", filename, e)))?;
+//     let mut reader = io::BufReader::new(keyfile);
+//
+//     // Load and return a single private key.
+//     let keys = pemfile::rsa_private_keys(&mut reader)
+//         .map_err(|_| error("failed to load private key".into()))?;
+//     if keys.len() != 1 {
+//         return Err(error("expected a single private key".into()));
+//     }
+//     Ok(keys[0].clone())
+// }
+use std::convert::Infallible;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use futures::TryFutureExt;
+use futures::TryStreamExt;
+use hyper::{Body, Client, Request, Response, Server};
+use hyper::service::{make_service_fn, service_fn};
+use tokio::net::TcpStream;
+
+async fn http_get(url: &str) {
+    let url: hyper::Uri = url.parse().unwrap();
+    println!("GET {}", url);
+    let mut response = match Client::new().get(url).await {
+        Ok(response) => response,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
+    match hyper::body::to_bytes(response.body_mut()).await {
+        Ok(bytes) => println!("{} {:?}", response.status(), bytes),
+        Err(e) => println!("Error: {}", e),
+    };
+}
+
+struct HyperTlsAcceptor {
+    tcp_listener: tokio::net::TcpListener,
+    tls_acceptor: tokio_rustls::TlsAcceptor,
+    //new_connection_stream: Pin<Box<dyn Stream<Item=Result<tokio_rustls::server::TlsStream<TcpStream>, std::io::Error>>>>,
+}
+
+impl HyperTlsAcceptor {
+    pub fn new(tcp_listener: tokio::net::TcpListener, tls_server_config: rustls::ServerConfig) -> Self {
+        // TODO(mleonhard) File bug with tokio to make tokio::net::tcp::Incoming::new() public or
+        // add a tokio::net::TcpListener::incoming(self) function.  This would let us capture
+        // `tcp_listener` in the closure.
+        // https://stackoverflow.com/questions/32300132/why-cant-i-store-a-value-and-a-reference-to-that-value-in-the-same-struct
+        let tls_acceptor =
+            tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(tls_server_config));
+        Self { tcp_listener, tls_acceptor }
+    }
+
+    fn make_stream<'a>(tcp_listener: &'a mut tokio::net::TcpListener, tls_acceptor: &'a mut tokio_rustls::TlsAcceptor)
+                       -> std::boxed::Box<dyn futures::stream::Stream<Item=std::result::Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, std::io::Error>> + 'a + Unpin> {
+        // std::future::Future<Output=std::io::Result<tokio::server::TlsStream>>
+        // https://github.com/rust-lang/rfcs/blob/master/text/2229-capture-disjoint-fields.md
+        //use futures::stream::Stream;
+        Box::new(tcp_listener
+            .incoming()
+            .map_err(|e| std::io::Error::new(
+                std::io::ErrorKind::Other, format!("TCP accept failed: {:?}", e)))
+            .and_then(move |tcp_connection|
+                tls_acceptor
+                    .accept(tcp_connection)
+                    .map_err(|e| {
+                        println!("[!] Voluntary server halt due to client-connection error...");
+                        std::io::Error::new(std::io::ErrorKind::Other, format!("TLS Error: {:?}", e))
+                    })
+            ))
+    }
+}
+
+impl hyper::server::accept::Accept for HyperTlsAcceptor {
+    type Conn = tokio_rustls::server::TlsStream<TcpStream>;
+    type Error = std::io::Error;
+
+    fn poll_accept(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+    ) -> Poll<Option<Result<Self::Conn, Self::Error>>> {
+        let mut self_cell = Cell::new(self);
+        let mut stream = HyperTlsAcceptor::make_stream(
+            self_cell.get_mut().tcp_listener.borrow_mut(), self_cell.get_mut().tls_acceptor.borrow_mut());
+        futures::stream::Stream::poll_next(Pin::new(&mut stream), cx)
+        // match poll_result {
+        //     Poll::Ready(Some(tcp_connection)) =>
+        //         match self.tls_acceptor.accept(tcp_connection).poll(cx) {
+        //             Poll::Ready(tls_connection) => Poll::Ready(Some(tls_connection)),
+        //             Poll::Pending => Poll::Pending,
+        //         },
+        //     x => x,
+        //     // .map_err(|e| {
+        //     // println!("[!] Voluntary server halt due to client-connection error...");
+        //     // // Errors could be handled here, instead of server aborting.
+        //     // // Ok(None)
+        //     // std::io::Error::new(std::io::ErrorKind::Other, format!("TLS Error: {:?}", e)) })
+        // }
+    }
+}
+
+async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
+    Ok(Response::new(Body::from("Hello World!\n")))
+}
+
+#[tokio::main]
+pub async fn main() -> () {
+    const CERT_FILENAME: &str = "server.crt";
+    let mut certs: Vec<rustls::Certificate> =
+        rustls::internal::pemfile::certs(
+            &mut std::io::BufReader::new(
+                std::fs::File::open(CERT_FILENAME)
+                    .expect(&format!("Failed to read file {}", CERT_FILENAME))))
+            .unwrap();
+    let cert: rustls::Certificate = match certs.len() {
+        0 => panic!("No PEM certificate found in file {}", CERT_FILENAME),
+        1 => certs.remove(0),
+        _ => panic!("Multiple PEM certificates found in file {}", CERT_FILENAME),
+    };
+
+    const KEY_FILENAME: &str = "server.key";
+    let mut keys: Vec<rustls::PrivateKey> =
+        rustls::internal::pemfile::pkcs8_private_keys(
+            &mut std::io::BufReader::new(
+                std::fs::File::open(KEY_FILENAME)
+                    .expect(&format!("Failed to read file {}", KEY_FILENAME))))
+            .unwrap();
+    let key: rustls::PrivateKey = match keys.len() {
+        0 => panic!("No unencrypted PEM key found in file {}", KEY_FILENAME),
+        1 => keys.remove(0),
+        _ => panic!("Multiple unencrypted PEM keys found in file {}", KEY_FILENAME),
+    };
+
+    let tls_config = {
+        let mut cfg = rustls::ServerConfig::new(rustls::NoClientAuth::new());
+        cfg.set_single_cert(vec![cert], key).unwrap();
+        // Configure ALPN to accept HTTP/2, HTTP/1.1 in that order.
+        cfg.set_protocols(&["h2".into(), "http/1.1".into()]);
+        cfg
+    };
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
+    let mut listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let tls_acceptor = HyperTlsAcceptor::new(listener, tls_config);
+    println!("Listening on {}", &addr);
+    let make_svc = make_service_fn(|_conn| {
+        async { Ok::<_, Infallible>(service_fn(hello)) }
+    });
+    let server = Server::builder(tls_acceptor)
+        .serve(make_svc);
+
+    // tokio::spawn(async move {
+    //     http_get("http://127.0.0.1:1690").await;
+    // });
+
+    server.await.unwrap();
+
+
+    // $ cargo install certainly --locked --root .
+    // ...
+    // $ bin/certainly server
+    // Writing server.key
+    // Writing server.crt
+    // $ bin/certainly --inspect server.crt
+    // [Local]  C=ZZ, O=Certainly, OU=server from mbp, CN=server
+    // Issuer:  C=ZZ, O=Certainly, OU=server from mbp, CN=server
+    //
+    // Created on:   Sun Apr 11 05:58:27 2020
+    // Expires on:   Sun Apr 11 05:58:27 2030
+    //
+    // Domains:
+    //  DNS: server
+    //
+    // To see more: $ openssl x509 -text -in server.crt
+
+    // $ cargo run --bin
+}
