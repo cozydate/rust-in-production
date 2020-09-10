@@ -7,16 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = "0.4.15"
-env_logger = "0.7.1"
-hostname = "0.3.1"
-log = "0.4.11"
-log-panics = { version = "2.0.0", features = ["with-backtrace"]}
-slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_debug"] }
-slog-async = "2.5.0"
-slog-envlogger = "2.2.0"
-slog-json = "2.3.0"
-slog-scope = "4.3.0"
-slog-scope-futures = "0.1.1"
-slog-stdlog = "4.0.0"
-slog-term = "2.6.0"
+chrono = "0.4"
+hostname = "0.3"
+log = "0.4"
+log-panics = { version = "2.0", features = ["with-backtrace"]}
+slog = { version = "2.5", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.5"
+slog-envlogger = "2.2"
+slog-json = "2.3"
+slog-scope = "4.3"
+slog-scope-futures = "0.1"
+slog-stdlog = "4.0"
+slog-term = "2.6"

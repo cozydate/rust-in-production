@@ -1,11 +1,13 @@
+use slog::*;
 use std::error::Error;
 use std::future::Future;
+use std::result::Result;
 
-use slog::Logger;
-
-pub mod using_log;
 pub mod apple;
 pub mod banana;
+pub mod using_log;
+pub mod using_slog;
+pub mod using_slog_scope;
 
 pub enum OutputFormat {
     JSON,
@@ -61,67 +63,67 @@ pub enum OutputFormat {
 /// {"time_ns":1585851354242507000, "time":"2020-04-02T18:15:54.242521000Z", \
 /// "module":"mod1","level":"ERROR","message":"msg1", "thread":"main","x":2}
 /// ```
-pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
-{
+pub fn configure(filters: &str) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>> {
     let format = OutputFormat::JSON;
-    #[cfg(debug_assertions)]  // Include the following statement in debug binaries, not release.
-        let format =
-        match std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new()).as_ref() {
-            "" | "json" => format,
-            "compact" => OutputFormat::Compact,
-            "full" => OutputFormat::Full,
-            "plain" => OutputFormat::Plain,
-            s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s)
-        };
+    #[cfg(debug_assertions)] // Include the following statement in debug binaries, not release.
+    let dev_log_format: String = std::env::var("DEV_LOG_FORMAT").unwrap_or(String::new());
+    let format = match dev_log_format.as_ref() {
+        "" | "json" => format,
+        "compact" => OutputFormat::Compact,
+        "full" => OutputFormat::Full,
+        "plain" => OutputFormat::Plain,
+        s => panic!("Invalid DEV_LOG_FORMAT env var value {:?}", s),
+    };
     configure_inner(filters, format)
 }
 
 /// Configures `log` and `slog` to emit to stdout with "plain" format.
 /// Can be called multiple times from different threads.
 /// Each call leaks a `GlobalLoggerGuard` which contains only a `bool`.
-pub fn configure_for_test(filters: &str) -> Result<(), Box<dyn Error>>
-{
+pub fn configure_for_test(filters: &str) -> Result<(), Box<dyn Error>> {
     let global_logger_guard = configure_inner(filters, OutputFormat::Plain)?;
     Box::leak(Box::new(global_logger_guard));
     Ok(())
 }
 
-fn configure_inner(filters: &str, output_format: OutputFormat) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>>
-{
+fn configure_inner(
+    filters: &str,
+    output_format: OutputFormat,
+) -> Result<slog_scope::GlobalLoggerGuard, Box<dyn Error>> {
     let _time_fn =
-        |_: &slog::Record|
-            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
-    let _time_ns_fn =
-        |_: &slog::Record|
-            std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH)
-                // Use default Duration (0 seconds) if system time is before epoch.
-                .unwrap_or_default()
-                // Nanoseconds overflow u64 in the year 2554.
-                .as_nanos() as u64;
-    let _module_fn = |record: &slog::Record|
-        record.module();
-    let _level_fn =
-        |record: &slog::Record|
-            match record.level() {
-                slog::Level::Critical => "ERROR",
-                slog::Level::Error => "ERROR",
-                slog::Level::Warning => "WARN",
-                slog::Level::Info => "INFO",
-                slog::Level::Debug => "DEBUG",
-                slog::Level::Trace => "TRACE",
-            };
-    let _message_fn =
-        |record: &slog::Record|
-            record.msg().to_string();
-    let _time_fn =
-        |_record: &slog::Record|
-            chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let _write_timestamp_fn = |w: &mut dyn std::io::Write|
-        w.write(chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true).as_bytes())
-            .map(|_| ());
-    let drain: Box<dyn slog::Drain<Ok=(), Err=std::io::Error> + Send> =
-        match output_format {
-            OutputFormat::JSON => (Box::new(
+        |_: &slog::Record| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+    let _time_ns_fn = |_: &slog::Record| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            // Use default Duration (0 seconds) if system time is before epoch.
+            .unwrap_or_default()
+            // Nanoseconds overflow u64 in the year 2554.
+            .as_nanos() as u64
+    };
+    let _module_fn = |record: &slog::Record| record.module();
+    let _level_fn = |record: &slog::Record| match record.level() {
+        slog::Level::Critical => "ERROR",
+        slog::Level::Error => "ERROR",
+        slog::Level::Warning => "WARN",
+        slog::Level::Info => "INFO",
+        slog::Level::Debug => "DEBUG",
+        slog::Level::Trace => "TRACE",
+    };
+    let _message_fn = |record: &slog::Record| record.msg().to_string();
+    let _time_fn = |_record: &slog::Record| {
+        chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    };
+    let _write_timestamp_fn = |w: &mut dyn std::io::Write| {
+        w.write(
+            chrono::Local::now()
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+                .as_bytes(),
+        )
+        .map(|_| ())
+    };
+    let drain: Box<dyn slog::Drain<Ok = (), Err = std::io::Error> + Send> = match output_format {
+        OutputFormat::JSON => {
+            Box::new(
                 slog_json::Json::new(std::io::stdout())
                     .add_key_value(slog::o!(
                         // Fields are in reverse order.
@@ -130,32 +132,37 @@ fn configure_inner(filters: &str, output_format: OutputFormat) -> Result<slog_sc
                         "module" => slog::FnValue(_module_fn),
                         "time" => slog::FnValue(_time_fn),
                         "time_ns" => slog::FnValue(_time_ns_fn),
-                        // TODONT(mleonhard) Don't include 'process' or 'host'.  Supervisor and collector will
-                        // add these values and will not trust any values already present.
-                    )).build())),
-            OutputFormat::Compact => Box::new(
-                slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
-                    .use_custom_timestamp(_write_timestamp_fn)
-                    .build()),
-            OutputFormat::Full => Box::new(
-                slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
-                    .use_custom_timestamp(_write_timestamp_fn)
-                    .build()),
-            OutputFormat::Plain => Box::new(
-                slog_term::FullFormat::new(slog_term::PlainDecorator::new(std::io::stdout()))
-                    .use_custom_timestamp(_write_timestamp_fn)
-                    .build())
-        };
+                        // TODONT(mleonhard) Don't include 'process' or 'host'.
+                        // Supervisor and collector will add these values and
+                        // will not trust any values already present.
+                    ))
+                    .build(),
+            )
+        }
+        OutputFormat::Compact => Box::new(
+            slog_term::CompactFormat::new(slog_term::TermDecorator::new().build())
+                .use_custom_timestamp(_write_timestamp_fn)
+                .build(),
+        ),
+        OutputFormat::Full => Box::new(
+            slog_term::FullFormat::new(slog_term::TermDecorator::new().build())
+                .use_custom_timestamp(_write_timestamp_fn)
+                .build(),
+        ),
+        OutputFormat::Plain => Box::new(
+            slog_term::FullFormat::new(slog_term::PlainDecorator::new(std::io::stdout()))
+                .use_custom_timestamp(_write_timestamp_fn)
+                .build(),
+        ),
+    };
     let drain = slog_envlogger::LogBuilder::new(drain)
         .parse(filters)
         // Add any level overrides from environment variable
-        .parse(
-            &match std::env::var("RUST_LOG") {
-                Ok(x) => Ok(x),
-                Err(std::env::VarError::NotPresent) => Ok(String::new()),
-                Err(x) => Err(x)
-            }?
-        )
+        .parse(&match std::env::var("RUST_LOG") {
+            Ok(x) => Ok(x),
+            Err(std::env::VarError::NotPresent) => Ok(String::new()),
+            Err(x) => Err(x),
+        }?)
         .build();
     let drain = slog::Fuse(std::sync::Mutex::new(drain));
     let drain = slog::Fuse(slog_async::Async::default(drain));
@@ -167,18 +174,20 @@ fn configure_inner(filters: &str, output_format: OutputFormat) -> Result<slog_sc
 }
 
 pub fn thread_scope<SF, R>(name: &str, f: SF) -> R
-    where SF: FnOnce() -> R {
+where
+    SF: FnOnce() -> R,
+{
     let _name = name;
     let logger = slog_scope::logger().new(slog::o!("thread" => String::from(_name)));
     slog_scope::scope(&logger, f)
 }
 
 pub fn task_scope<F>(name: &'static str, f: F) -> slog_scope_futures::SlogScope<Logger, F>
-    where F: Future {
+where
+    F: Future,
+{
     let _name = name;
-    slog_scope_futures::SlogScope::new(
-        slog_scope::logger().new(slog::o!("task" => _name)),
-        f)
+    slog_scope_futures::SlogScope::new(slog_scope::logger().new(slog::o!("task" => _name)), f)
 }
 
 #[macro_export]

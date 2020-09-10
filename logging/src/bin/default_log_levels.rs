@@ -21,8 +21,8 @@ fn main() {
     info!(slog_scope::logger(), "main");
     debug!(slog_scope::logger(), "main");
     logging::apple::debug();
-
-    // $ cargo run --bin default_log_levels
-    // {"msg":"main","level":"INFO","ts":"2020-04-04T23:47:11.147752-07:00"}
-    // {"msg":"apple 1","level":"DEBG","ts":"2020-04-04T23:47:11.148345-07:00","x":2}
 }
+
+// $ cargo run --bin default_log_levels
+// {"msg":"main","level":"INFO","ts":"2020-09-10T15:30:50.823404-07:00"}
+// {"msg":"apple 1","level":"DEBG","ts":"2020-09-10T15:30:50.823952-07:00","x":2}
