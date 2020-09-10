@@ -4,29 +4,19 @@ use tokio::net::{TcpListener, TcpStream};
 async fn handle_conn(mut tcp_stream: TcpStream) {
     use tokio::io::AsyncReadExt;
     let mut buf = String::new();
-    match tcp_stream.read_to_string(&mut buf).await {
-        Ok(_) => {
-            println!("INFO server read {:?}", buf);
-        }
-        Err(e) => {
-            println!("WARN server read error: {:?}", e);
-            return;
-        }
-    };
+    while let Err(e) = tcp_stream.read_to_string(&mut buf).await {
+        println!("WARN server read error: {:?}", e);
+        return;
+    }
+    println!("INFO server read {:?}", buf);
     println!("INFO server writing 'response'");
     use tokio::io::AsyncWriteExt;
-    match tcp_stream.write_all(b"response").await {
-        Ok(_) => {}
-        Err(e) => {
-            println!("WARN server write error: {:?}", e);
-        }
-    };
-    match tcp_stream.shutdown(std::net::Shutdown::Write) {
-        Ok(_) => {}
-        Err(e) => {
-            println!("WARN server stream shutdown error: {:?}", e);
-        }
-    };
+    while let Err(e) = tcp_stream.write_all(b"response").await {
+        println!("WARN server write error: {:?}", e);
+    }
+    while let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
+        println!("WARN server stream shutdown error: {:?}", e);
+    }
 }
 
 async fn accept_loop(mut listener: TcpListener) {
@@ -61,30 +51,20 @@ async fn call_server(addr: &str) {
     println!("INFO client writing 'greeting'");
     {
         use tokio::io::AsyncWriteExt;
-        match tcp_stream.write_all(b"greeting").await {
-            Ok(_) => {}
-            Err(e) => {
-                println!("WARN client write error: {:?}", e);
-            }
-        };
-    }
-    match tcp_stream.shutdown(std::net::Shutdown::Write) {
-        Ok(_) => {}
-        Err(e) => {
-            println!("WARN client stream shutdown-write error: {:?}", e);
+        while let Err(e) = tcp_stream.write_all(b"greeting").await {
+            println!("WARN client write error: {:?}", e);
         }
-    };
+    }
+    while let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
+        println!("WARN client stream shutdown-write error: {:?}", e);
+    }
     use tokio::io::AsyncReadExt;
     let mut buf = String::new();
-    match tcp_stream.read_to_string(&mut buf).await {
-        Ok(_) => {
-            println!("INFO client read {:?}", buf);
-        }
-        Err(e) => {
-            println!("WARN client read error: {:?}", e);
-            return;
-        }
-    };
+    while let Err(e) = tcp_stream.read_to_string(&mut buf).await {
+        println!("WARN client read error: {:?}", e);
+        return;
+    }
+    println!("INFO client read {:?}", buf);
 }
 
 async fn async_main() -> () {
@@ -111,18 +91,18 @@ pub fn main() {
 }
 
 // $ cargo run --bin tcp
-// INFO Listening for TCP connections on [::]:1690
+// INFO server listening on [::]:1690
 // INFO client connecting to 127.0.0.1:1690
+// INFO accepted [::ffff:127.0.0.1]:51537
 // INFO client connected to 127.0.0.1:1690s
 // INFO client writing 'greeting'
-// INFO accepted [::ffff:127.0.0.1]:51298
 // INFO server read "greeting"
 // INFO server writing 'response'
 // INFO client read "response"
 // INFO client connecting to [::1]:1690
 // INFO client connected to [::1]:1690s
 // INFO client writing 'greeting'
-// INFO accepted [::1]:51299
+// INFO accepted [::1]:51538
 // INFO server read "greeting"
 // INFO server writing 'response'
 // INFO client read "response"
