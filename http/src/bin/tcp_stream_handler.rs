@@ -17,9 +17,6 @@ fn handle_conn(mut tcp_stream: TcpStream) -> Pin<Box<dyn Future<Output = ()> + S
         while let Err(e) = tcp_stream.write_all(b"response").await {
             println!("WARN server write error: {:?}", e);
         }
-        while let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
-            println!("WARN server stream shutdown error: {:?}", e);
-        }
     })
 }
 
@@ -54,7 +51,7 @@ async fn call_server(addr: &str) {
     println!("INFO client connecting to {}", addr);
     let mut tcp_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     println!(
-        "INFO client connected to {}s",
+        "INFO client connected to {}",
         tcp_stream.peer_addr().unwrap()
     );
     println!("INFO client writing 'greeting'");
