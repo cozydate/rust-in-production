@@ -29,11 +29,10 @@ fn main() {
 // {"msg":"banana 1","level":"INFO","ts":"2020-04-02T09:36:10.117426-07:00","x":2}
 
 // You can change the default log level:
-// $ RUST_LOG=debug cargo run --bin log_levels_from_env_var
-// {"msg":"main","level":"INFO","ts":"2020-04-02T09:36:25.783190-07:00"}
-// {"msg":"main","level":"DEBG","ts":"2020-04-02T09:36:25.783800-07:00"}   <-- Note
-// {"msg":"apple 1","level":"DEBG","ts":"2020-04-02T09:36:25.783830-07:00","x":2}
-// {"msg":"banana 1","level":"INFO","ts":"2020-04-02T09:36:25.783866-07:00","x":2}
+// $ RUST_LOG=info cargo run --bin log_levels_from_env_var
+// {"msg":"main","level":"INFO","ts":"2020-09-10T16:08:54.525801-07:00"}
+// {"msg":"apple 1","level":"DEBG","ts":"2020-09-10T16:08:54.526267-07:00","x":2}
+// {"msg":"banana 1","level":"INFO","ts":"2020-09-10T16:08:54.526300-07:00","x":2}
 
 // You can set log level for specific modules.
 // See https://docs.rs/slog-envlogger/2.2.0/slog_envlogger/
