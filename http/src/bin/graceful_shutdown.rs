@@ -38,12 +38,11 @@ pub struct Stopper {
 
 impl Stopper {
     async fn wait(&mut self) {
-        loop {
-            match self.signal_tx.send(()).await {
-                Ok(_) => {}
-                Err(_) => {
-                    return;
-                }
+        // The send() call always waits because new_stopper() fills the channel.
+        match self.signal_tx.send(()).await {
+            Ok(_) => {}
+            Err(_) => {
+                return;
             }
         }
     }
@@ -57,7 +56,8 @@ impl Stopper {
 }
 
 pub fn new_stopper() -> (StopperController, Stopper) {
-    let (signal_tx, signal_rx) = mpsc::channel(1);
+    let (mut signal_tx, signal_rx) = mpsc::channel(1);
+    signal_tx.try_send(()).unwrap(); // Fill the channel so senders wait.
     let (tracker_tx, tracker_rx) = mpsc::channel(1);
     (
         StopperController {
