@@ -7,11 +7,9 @@ pub async fn async_main() -> () {
         }
     });
     println!("Starting thread");
-    tokio::task::spawn_blocking(|| {
-        loop {
-            println!("Thread");
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
+    tokio::task::spawn_blocking(|| loop {
+        println!("Thread");
+        std::thread::sleep(std::time::Duration::from_secs(1));
     });
     println!("async_main() returning");
 }
@@ -27,17 +25,17 @@ pub fn main() {
     println!("Shutting down Tokio runtime");
     runtime.shutdown_timeout(std::time::Duration::from_secs(3));
     println!("main() returning");
-
-    // $ cargo run --bin runtime_shutdown
-    // Starting task
-    // Starting thread
-    // async_main() returning
-    // Shutting down Tokio runtime
-    // Task
-    // Thread
-    // Thread
-    // Task
-    // Thread
-    // Task
-    // main() returning
 }
+
+// $ cargo run --bin runtime_shutdown
+// Starting task
+// Starting thread
+// async_main() returning
+// Shutting down Tokio runtime
+// Task
+// Thread
+// Thread
+// Task
+// Thread
+// Task
+// main() returning
