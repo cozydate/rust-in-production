@@ -7,14 +7,23 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.30"
-futures = "0.3.4"
-http-body = "0.3.1"
-hyper = { version = "0.13.4", features = ["stream"] }
+# ring = "0.16.12"
+# rustls = "0.17.0"
+# tokio-rustls = "0.13.0"
+#hyper-rustls = "0.20.0"
+#tokio-rustls = "0.8.0"  # Old version needed by tower-web.
+#tower-web = { version = "0.3.7", features = ["rustls"] }
+
+# async-trait = "0.1.40"
+# function_name = "0.2.0"
+# futures = "0.3.4"
+# http-body = "0.3.1"
+# hyper = { version = "0.13.4", features = ["stream"] }
 logging = { path = "../logging" }
-nix = "0.17.0"
-rand = "0.7.3"
+# nix = "0.17.0"
+# rand = "0.7.3"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_debug"] }
 slog-scope = "4.3.0"
-slog-scope-futures = "0.1.1"
-tokio = { version = "0.2.18", features = ["full"] }
+# slog-scope-futures = "0.1.1"
+tokio = { version = "0.2.22", features = ["full"] }
+# tokio-test = "0.2.1"
