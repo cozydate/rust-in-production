@@ -7,15 +7,16 @@ fn handle_conn(mut tcp_stream: TcpStream) -> Pin<Box<dyn Future<Output = ()> + S
     Box::pin(async move {
         use tokio::io::AsyncReadExt;
         let mut buf = String::new();
-        while let Err(e) = tcp_stream.read_to_string(&mut buf).await {
+        if let Err(e) = tcp_stream.read_to_string(&mut buf).await {
             println!("WARN server read error: {:?}", e);
             return;
         }
         println!("INFO server read {:?}", buf);
         println!("INFO server writing 'response'");
         use tokio::io::AsyncWriteExt;
-        while let Err(e) = tcp_stream.write_all(b"response").await {
+        if let Err(e) = tcp_stream.write_all(b"response").await {
             println!("WARN server write error: {:?}", e);
+            return;
         }
     })
 }
@@ -57,16 +58,18 @@ async fn call_server(addr: &str) {
     println!("INFO client writing 'greeting'");
     {
         use tokio::io::AsyncWriteExt;
-        while let Err(e) = tcp_stream.write_all(b"greeting").await {
+        if let Err(e) = tcp_stream.write_all(b"greeting").await {
             println!("WARN client write error: {:?}", e);
+            return;
         }
     }
-    while let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
+    if let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
         println!("WARN client stream shutdown-write error: {:?}", e);
+        return;
     }
     use tokio::io::AsyncReadExt;
     let mut buf = String::new();
-    while let Err(e) = tcp_stream.read_to_string(&mut buf).await {
+    if let Err(e) = tcp_stream.read_to_string(&mut buf).await {
         println!("WARN client read error: {:?}", e);
         return;
     }

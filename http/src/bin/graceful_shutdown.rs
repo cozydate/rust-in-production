@@ -80,8 +80,9 @@ async fn handle_conn(mut tcp_stream: TcpStream, mut stopper: Stopper) {
     }
     println!("INFO server writing 'response1 '");
     use tokio::io::AsyncWriteExt;
-    while let Err(e) = tcp_stream.write_all(b"response1 ").await {
+    if let Err(e) = tcp_stream.write_all(b"response1 ").await {
         println!("WARN server write error: {:?}", e);
+        return;
     }
     delay_for(Duration::from_secs(1)).await;
     if stopper.is_signalled() {
@@ -89,8 +90,9 @@ async fn handle_conn(mut tcp_stream: TcpStream, mut stopper: Stopper) {
         return;
     }
     println!("INFO server writing 'response2 '");
-    while let Err(e) = tcp_stream.write_all(b"response2 ").await {
+    if let Err(e) = tcp_stream.write_all(b"response2 ").await {
         println!("WARN server write error: {:?}", e);
+        return;
     }
     delay_for(Duration::from_secs(1)).await;
     if stopper.is_signalled() {
@@ -98,8 +100,9 @@ async fn handle_conn(mut tcp_stream: TcpStream, mut stopper: Stopper) {
         return;
     }
     println!("INFO server writing 'response3'");
-    while let Err(e) = tcp_stream.write_all(b"response3").await {
+    if let Err(e) = tcp_stream.write_all(b"response3").await {
         println!("WARN server write error: {:?}", e);
+        return;
     }
 }
 
@@ -146,8 +149,9 @@ async fn call_server(addr: &str) {
         "INFO client connected to {}",
         tcp_stream.peer_addr().unwrap()
     );
-    while let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
+    if let Err(e) = tcp_stream.shutdown(std::net::Shutdown::Write) {
         println!("WARN client stream shutdown-write error: {:?}", e);
+        return;
     }
     use tokio::io::AsyncReadExt;
     loop {
