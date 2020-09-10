@@ -1,40 +1,49 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::println;
 use tokio::net::{TcpListener, TcpStream};
 
-async fn handle_conn(mut tcp_stream: TcpStream) {
-    use tokio::io::AsyncReadExt;
-    let mut buf = String::new();
-    match tcp_stream.read_to_string(&mut buf).await {
-        Ok(_) => {
-            println!("INFO server read {:?}", buf);
-        }
-        Err(e) => {
-            println!("WARN server read error: {:?}", e);
-            return;
-        }
-    };
-    println!("INFO server writing 'response'");
-    use tokio::io::AsyncWriteExt;
-    match tcp_stream.write_all(b"response").await {
-        Ok(_) => {}
-        Err(e) => {
-            println!("WARN server write error: {:?}", e);
-        }
-    };
-    match tcp_stream.shutdown(std::net::Shutdown::Write) {
-        Ok(_) => {}
-        Err(e) => {
-            println!("WARN server stream shutdown error: {:?}", e);
-        }
-    };
+fn handle_conn(mut tcp_stream: TcpStream) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        match tcp_stream.read_to_string(&mut buf).await {
+            Ok(_) => {
+                println!("INFO server read {:?}", buf);
+            }
+            Err(e) => {
+                println!("WARN server read error: {:?}", e);
+                return;
+            }
+        };
+        println!("INFO server writing 'response'");
+        use tokio::io::AsyncWriteExt;
+        match tcp_stream.write_all(b"response").await {
+            Ok(_) => {}
+            Err(e) => {
+                println!("WARN server write error: {:?}", e);
+            }
+        };
+        match tcp_stream.shutdown(std::net::Shutdown::Write) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("WARN server stream shutdown error: {:?}", e);
+            }
+        };
+    })
 }
 
-async fn accept_loop(mut listener: TcpListener) {
+// Note: We pass a fn that returns a Future which performs the actual handling.
+//       We can simplify this once Rust supports async closures:
+//       "Tracking issue for `#!feature(async_closure)]` (RFC 2394)"
+//       https://github.com/rust-lang/rust/issues/62290
+type HandlerFn = fn(tokio::net::TcpStream) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+async fn accept_loop(mut listener: TcpListener, handler: HandlerFn) {
     loop {
         match listener.accept().await {
             Ok((tcp_stream, addr)) => {
                 println!("INFO accepted {}", addr);
-                tokio::spawn(handle_conn(tcp_stream));
+                tokio::spawn(handler(tcp_stream));
             }
             Err(e) => {
                 println!("WARN Failed accepting connection from socket: {:?}", e);
@@ -93,7 +102,7 @@ async fn async_main() -> () {
         "INFO server listening on {}",
         listener.local_addr().unwrap()
     );
-    tokio::spawn(accept_loop(listener));
+    tokio::spawn(accept_loop(listener, handle_conn));
 
     call_server("127.0.0.1:1690").await;
     call_server("[::1]:1690").await;
@@ -110,19 +119,19 @@ pub fn main() {
     runtime.shutdown_timeout(std::time::Duration::from_secs(3));
 }
 
-// $ cargo run --bin tcp
-// INFO Listening for TCP connections on [::]:1690
+// $ cargo run --bin tcp_stream_handler
+// INFO server listening on [::]:1690
 // INFO client connecting to 127.0.0.1:1690
 // INFO client connected to 127.0.0.1:1690s
 // INFO client writing 'greeting'
-// INFO accepted [::ffff:127.0.0.1]:51298
+// INFO accepted [::ffff:127.0.0.1]:51436
 // INFO server read "greeting"
 // INFO server writing 'response'
 // INFO client read "response"
 // INFO client connecting to [::1]:1690
 // INFO client connected to [::1]:1690s
 // INFO client writing 'greeting'
-// INFO accepted [::1]:51299
+// INFO accepted [::1]:51437
 // INFO server read "greeting"
 // INFO server writing 'response'
 // INFO client read "response"
