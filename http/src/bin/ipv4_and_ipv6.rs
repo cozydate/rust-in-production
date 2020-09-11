@@ -1,49 +1,53 @@
-use std::convert::Infallible;
+// This program shows how to receive IPv4 and IPv6 TCP conenctions at the same time.
 
-use hyper::{Body, Client, Request, Response, Server};
-use hyper::service::{make_service_fn, service_fn};
+use std::println;
 
-async fn http_get(url: &str) {
-    let url: hyper::Uri = url.parse().unwrap();
-    println!("GET {}", url);
-    let mut response = match Client::new().get(url).await {
-        Ok(response) => response,
-        Err(e) => {
-            println!("Error: {}", e);
-            return;
-        }
-    };
-    match hyper::body::to_bytes(response.body_mut()).await {
-        Ok(bytes) => println!("{} {:?}", response.status(), bytes),
-        Err(e) => println!("Error: {}", e),
-    };
+async fn call_server(addr: &str) {
+    let mut tcp_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    use tokio::io::AsyncReadExt;
+    let mut buf = String::new();
+    if let Err(e) = tcp_stream.read_to_string(&mut buf).await {
+        println!("WARN client read error: {:?}", e);
+        return;
+    }
+    println!("INFO client read {:?}", buf);
 }
 
-async fn hello(_: Request<Body>) -> Result<Response<Body>, Infallible> {
-    Ok(Response::new(Body::from("Hello World!\n")))
-}
-
-#[tokio::main]
-pub async fn main() -> () {
-    let addr = std::net::SocketAddr::from(
-        (std::net::Ipv6Addr::UNSPECIFIED /* includes ipv4 */, 1690));
-
-    let make_svc = make_service_fn(|_conn| {
-        async { Ok::<_, Infallible>(service_fn(hello)) }
-    });
-    let server = Server::bind(&addr).serve(make_svc);
-    println!("Listening on {}", &addr);
+async fn async_main() -> () {
+    let interface =
+        std::net::IpAddr::from(std::net::Ipv6Addr::UNSPECIFIED /* includes ipv4 */); // <-------
+    let addr = std::net::SocketAddr::from((interface, 1690));
+    let mut listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    println!(
+        "INFO server listening on {}",
+        listener.local_addr().unwrap()
+    );
     tokio::spawn(async move {
-        server.await.unwrap();
+        loop {
+            let (mut tcp_stream, _addr) = listener.accept().await.unwrap();
+            use tokio::io::AsyncWriteExt;
+            if let Err(e) = tcp_stream.write_all(b"response").await {
+                println!("WARN server write error: {:?}", e);
+                return;
+            }
+        }
     });
 
-    http_get("http://127.0.0.1:1690").await;
-    http_get("http://[::1]:1690").await;
-
-    // $ cargo run --bin ipv4_and_ipv6
-    // Listening on [::]:1690
-    // GET http://127.0.0.1:1690/
-    // 200 OK b"Hello World!\n"
-    // GET http://[::1]:1690/
-    // 200 OK b"Hello World!\n"
+    call_server("127.0.0.1:1690").await;
+    call_server("[::1]:1690").await;
 }
+
+pub fn main() {
+    let mut runtime = tokio::runtime::Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async_main());
+    runtime.shutdown_background();
+}
+
+// $ cargo run --bin ipv4_and_ipv6
+// INFO server listening on [::]:1690
+// INFO client read "response"
+// INFO client read "response"
