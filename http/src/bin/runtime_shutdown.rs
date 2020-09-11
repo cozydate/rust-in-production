@@ -1,3 +1,5 @@
+// This program shows how to safely shut down a Tokio server.
+
 pub async fn async_main() -> () {
     println!("Starting task");
     tokio::spawn(async {
@@ -21,8 +23,8 @@ pub fn main() {
         .build()
         .unwrap();
     runtime.block_on(async_main());
-    // Initiate shutdown and wait for all tasks to stop or timeout to pass.  Does not kill tasks.
     println!("Shutting down Tokio runtime");
+    // Drops waiting tasks.  Waits for all busy tasks to await and drops them.  Gives up after timeout.
     runtime.shutdown_timeout(std::time::Duration::from_secs(3));
     println!("main() returning");
 }
