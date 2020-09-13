@@ -1,10 +1,10 @@
-// This program shows how to use TLS.
+// This program shows how to use TLS with certificate pinning.
 
 use std::println;
 use std::sync::Arc;
 
 /// AcceptSpecificCertsVerifier implements certificate pinning.
-/// 
+///
 /// The rustls library has an open issue to add something like this:
 /// "Implement support for certificate pinning" https://github.com/ctz/rustls/issues/227
 struct AcceptSpecificCertsVerifier {
@@ -36,15 +36,9 @@ fn arbitrary_dns_name() -> webpki::DNSName {
 }
 
 async fn async_main() -> () {
-    let cert_pem_bytes = tokio::fs::read("localhost.cert").await.unwrap();
-    let cert_pem = pem::parse(cert_pem_bytes).unwrap();
-    assert_eq!(cert_pem.tag, "CERTIFICATE");
-    let cert = rustls::Certificate(cert_pem.contents);
-
-    let key_pem_bytes = tokio::fs::read("localhost.key").await.unwrap();
-    let key_pem = pem::parse(key_pem_bytes).unwrap();
-    let key = rustls::PrivateKey(key_pem.contents);
-    assert_eq!(key_pem.tag, "PRIVATE KEY");
+    let rcgen_cert = rcgen::generate_simple_self_signed([String::from("localhost")]).unwrap();
+    let cert = rustls::Certificate(rcgen_cert.serialize_der().unwrap());
+    let key = rustls::PrivateKey(rcgen_cert.serialize_private_key_der());
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 1690));
     let mut listener = tokio::net::TcpListener::bind(&addr).await.unwrap();

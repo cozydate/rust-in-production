@@ -393,6 +393,7 @@ dependencies = [
  "logging",
  "nix",
  "pem",
+ "rcgen",
  "rustls",
  "slog",
  "slog-scope",
@@ -719,6 +720,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4974f7e96ee51fa3c90c3022e02c3a7117e71cb2a84518a55e44360135200c25"
+dependencies = [
+ "chrono",
+ "pem",
+ "ring",
+ "yasna",
 ]
 
 [[package]]
@@ -1200,4 +1213,13 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "yasna"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de7bff972b4f2a06c85f6d8454b09df153af7e3a4ec2aac81db1b105b684ddb"
+dependencies = [
+ "chrono",
 ]

@@ -10,7 +10,7 @@ That code does a lot of things.  Here are the things split into separate binarie
 - [`concurrent_connections.rs`](src/bin/concurrent_connections.rs) - Handle multiple connections at the same time
 - [`handle_conn_fns.rs`](src/bin/handle_conn_fns.rs) - Pass connection handler functions
 - [`graceful_shutdown.rs`](src/bin/graceful_shutdown.rs) - Shutdown a server that is serving clients
-- [`tls.rs`](src/bin/tls.rs) - Use TLS
+- [`tls.rs`](src/bin/tls.rs) - Use TLS with certificate pinning
 
 - [`get.rs`](src/bin/get.rs)
 - [`streaming_response.rs`](src/bin/streaming_response.rs)
@@ -27,8 +27,21 @@ Rust's TLS client (`rustls`) accepts only certificates with Subject Alternative 
 There are two ways to make a certificate or certificate signing request with SAN values:
 1. Put the values in an `openssl.cfg` file and pass the `-config openssl.cfg` parameter to the `openssl` command.
    This works on MacOS 10.15.6 which has an `openssl` command from LibreSSL 2.8.3.
+   ```
+   # openssl.cfg
+   [req]
+   distinguished_name=dn
+   x509_extensions=ext
+   [ dn ]
+   CN=localhost
+   [ ext ]
+   subjectAltName = @alt_names
+   [alt_names]
+   DNS.1 = localhost
+   IP.1 = 127.0.0.1
+   IP.2 = ::1
+   ```
    See:
-   - [`openssl.cfg`](openssl.cfg)
    - [PKCS#10 certificate request and certificate generating utility](https://www.openssl.org/docs/man1.1.1/man1/req.html)
    - [X509 V3 certificate extension configuration format](https://www.openssl.org/docs/man1.1.1/man5/x509v3_config.html)
 2. Use a newer version of OpenSSL which accepts multiple `-addext 'subjectAltName = DNS:localhost'` parameters.
