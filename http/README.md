@@ -11,6 +11,7 @@ That code does a lot of things.  Here are the things split into separate binarie
 - [`handle_conn_fns.rs`](src/bin/handle_conn_fns.rs) - Pass connection handler functions
 - [`graceful_shutdown.rs`](src/bin/graceful_shutdown.rs) - Shutdown a server that is serving clients
 - [`tls.rs`](src/bin/tls.rs) - Use TLS with certificate pinning
+- [`async_read.rs`](src/bin/async_read.rs) - Implement `tokio::io::AsyncRead`
 
 - [`get.rs`](src/bin/get.rs)
 - [`streaming_response.rs`](src/bin/streaming_response.rs)
