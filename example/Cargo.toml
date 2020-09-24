@@ -1,0 +1,9 @@
+# Cargo.toml
+[package]
+edition = "2018"
+name = "example"
+version = "0.1.0"
+
+[dependencies]
+string-wrapper = "0.3"
+tokio = {version = "0.2", features = ["full"]}
