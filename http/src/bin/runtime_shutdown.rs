@@ -1,4 +1,4 @@
-// This program shows how to safely shut down a Tokio server.
+// This program shows how to safely shut down a Tokio async task executor.
 
 pub async fn async_main() -> () {
     println!("Starting task");
