@@ -68,6 +68,33 @@ impl Buffer {
             panic!("read would underflow");
         }
         self.read_index = new_read_index;
+        if self.read_index == self.write_index {
+            // All data has been read.  Reset the buffer.
+            self.write_index = 0;
+            self.read_index = 0;
+        }
+    }
+
+    // shift() moves data to the beginning of the buffer.
+    pub fn shift(&mut self) {
+        if self.read_index == 0 {
+            return;
+        }
+        self.buf.copy_within(self.read_index..self.write_index, 0)
+    }
+}
+
+impl AsyncRead for Buffer {
+    fn poll_read(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<tokio::io::Result<usize>> {
+        println!("Buffer poll_read");
+        let bytes_read = match buf.write(self.readable()) {
+            Err(e) => {
+                return Poll::Ready(Err(e));
+            }
+            Ok(bytes_read) => bytes_read,
+        };
+        self.read(bytes_read);
+        Poll::Ready(Ok(bytes_read))
     }
 }
 
@@ -81,48 +108,53 @@ pub fn escape_ascii(input: &[u8]) -> String {
     result
 }
 
-struct LoggingWritable;
+struct AsyncWriteLogger;
 
-impl AsyncWrite for LoggingWritable {
+impl AsyncWrite for AsyncWriteLogger {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        println!("LoggingWritable::poll_write {:?}", escape_ascii(buf));
+        println!("AsyncWriteLogger::poll_write {:?}", escape_ascii(buf));
         match std::str::from_utf8(buf) {
             Ok(s) => {
-                println!("LoggingWritable::poll_write {:?}", s);
+                println!("AsyncWriteLogger::poll_write {:?}", s);
             }
             Err(_) => {
-                println!("LoggingWritable::poll_write {:?}", buf);
+                println!("AsyncWriteLogger::poll_write {:?}", buf);
             }
         }
         Poll::Ready(Ok(buf.len()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        println!("LoggingWritable::poll_flush");
+        println!("AsyncWriteLogger::poll_flush");
         Poll::Ready(Ok(()))
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        println!("LoggingWritable::poll_shutdown");
+        println!("AsyncWriteLogger::poll_shutdown");
         Poll::Ready(Ok(()))
     }
 }
 
-struct AsyncReadable(u8);
+pub enum AsyncReadableAction {
+    Pending,
+    Data(Vec<u8>),
+    Error(std::io::Error),
+}
+
+struct AsyncReadable(Vec<AsyncReadableAction>);
 
 impl AsyncRead for AsyncReadable {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<tokio::io::Result<usize>> {
-        self.0 += 1;
-        match self.0 {
-            1 => {
+        if self.0.is_empty() {
+            return Poll::Ready(tokio::io::Result::Ok(0));
+        }
+        match self.0.remove(0) {
+            AsyncReadableAction::Pending => {
                 cx.waker().clone().wake();
                 Poll::Pending
             }
-            2 => Poll::Ready(buf.write(b"aaa\r\nbbb\r\n")),
-            3 => Poll::Ready(buf.write(b"ccc\r\n")),
-            4 => Poll::Ready(buf.write(b"ddd\r\n\r\neee\r\n")),
-            5 => Poll::Ready(buf.write(b"fff\r\n")),
-            _ => Poll::Ready(tokio::io::Result::Ok(0))
+            AsyncReadableAction::Data(bytes) => Poll::Ready(buf.write(&bytes)),
+            AsyncReadableAction::Error(e) => Poll::Ready(Err(e)),
         }
     }
 }
@@ -191,9 +223,6 @@ pub fn read_all<T>(input: &mut T) -> ReadAll<T>
 
 #[derive(Debug)]
 pub enum Http11Error {
-    StdIoError(std::io::Error),
-    UnexpectedEof,
-    RequestHeaderTooLong,
     BadStatusLine,
     MissingContentLengthHeader,
 }
@@ -220,7 +249,8 @@ struct Http11Request {
 
 impl Http11Request {
     fn parse_head(head: &[u8]) -> Result<Http11Request, Http11Error> {
-        println!("ReadHttp11Request head {:?}", escape_ascii(head));
+        println!("Http11Request::parse_head {:?}", escape_ascii(head));
+
         // match std::str::from_utf8(&buf[..num_bytes_read]) {
         //     Err(e) => {
         //         println!("ReadHttp11Request Poll::Ready(Err({:?}))", e);
@@ -246,101 +276,131 @@ impl Http11Request {
     }
 }
 
-// ReadHttp11Request reads the full HTTP header from `input` into an internal buffer,
-// then parses it and returns an `Http11Request` struct.
-// Returns Err(RequestHeaderTooLong) if the header is longer than 4 KiB.
-struct ReadHttp11Request<'a, T> where T: AsyncRead {
-    input: Pin<&'a mut T>,
+// ReadDelimitedAndParse reads from `input` into `buf` until it reads `delim`.
+// Then it calls `parser` with the slice of `buf` up until `delim` and returns result.
+// If `buf` already contains `delim`, this will not read from `input`.
+// Returns Err(InvalidData) if `buffer` fills up before `delim` is found.
+struct ReadDelimitedAndParse<'a, T1, T2> where T1: AsyncRead {
+    input: Pin<&'a mut T1>,
     buf: Pin<&'a mut Buffer>,
+    delim: &'a [u8],
+    parser: fn(&[u8]) -> T2,
     cursor: NoBorrowCursor,
 }
 
-impl<'a, T> ReadHttp11Request<'a, T> where T: AsyncRead {
-    pub fn new(input: Pin<&'a mut T>, buf: Pin<&'a mut Buffer>) -> ReadHttp11Request<'a, T> {
-        ReadHttp11Request {
-            input,
-            buf,
-            cursor: NoBorrowCursor::new(),
-        }
-    }
-}
-
-impl<'a, T> Future for ReadHttp11Request<'a, T>
-    where T: AsyncRead {
-    type Output = Result<Http11Request, Http11Error>;
+impl<'a, T1, T2> Future for ReadDelimitedAndParse<'a, T1, T2>
+    where T1: AsyncRead {
+    type Output = std::io::Result<T2>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        println!("ReadDelimitedAndParse poll");
         let borrowed_self = self.get_mut();
         let input = &mut borrowed_self.input;
         let buf = &mut borrowed_self.buf;
+        let delim = &borrowed_self.delim;
+        let parser = &borrowed_self.parser;
         let cursor = &mut borrowed_self.cursor;
         loop {
-            println!("ReadHttp11Request poll_read");
+            println!("ReadDelimitedAndParse data {:?}", escape_ascii(buf.readable()));
+            let (head_len, option_result) = match cursor.split(buf.readable(), delim) {
+                Some((head, rest)) => {
+                    println!("ReadDelimitedAndParse found head={:?} rest={:?}",
+                             escape_ascii(head),
+                             escape_ascii(rest));
+                    (head.len(), Some(parser(head)))
+                }
+                None => {
+                    println!("ReadDelimitedAndParse head not found, pending");
+                    (0, None)
+                }
+            };
+            if head_len != 0 {
+                buf.read(head_len);
+            }
+            if let Some(result) = option_result {
+                return Poll::Ready(Ok(result));
+            }
+
             let writable = match buf.writable() {
                 Some(s) => s,
                 None => {
-                    return Poll::Ready(Err(Http11Error::RequestHeaderTooLong));
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData, "buffer full")));
                 }
             };
             match input.as_mut().poll_read(cx, writable) {
                 Poll::Pending => {
-                    println!("ReadHttp11Request pending");
+                    println!("ReadDelimitedAndParse pending");
                     return Poll::Pending;
                 }
                 Poll::Ready(Ok(0)) => {
-                    println!("ReadHttp11Request eof");
-                    return Poll::Ready(Err(Http11Error::UnexpectedEof));
+                    println!("ReadDelimitedAndParse eof");
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof, "eof before delim read")));
                 }
                 Poll::Ready(Ok(num_bytes_read)) => {
-                    println!("ReadHttp11Request read {} bytes", num_bytes_read);
+                    println!("ReadDelimitedAndParse read {} bytes", num_bytes_read);
                     buf.wrote(num_bytes_read);
-                    println!("ReadHttp11Request data {:?}", escape_ascii(buf.readable()));
-                    let (head_len, result) = match cursor.split(buf.readable(), b"\r\n\r\n") {
-                        Some((head, rest)) => {
-                            println!("ReadHttp11Request found head={:?} rest={:?}",
-                                     escape_ascii(head),
-                                     escape_ascii(rest));
-                            (head.len(), Http11Request::parse_head(head))
-                        }
-                        None => {
-                            println!("ReadHttp11Request head not found, pending");
-                            cx.waker().clone().wake();
-                            return Poll::Pending;
-                        }
-                    };
-                    buf.read(head_len);
-                    return Poll::Ready(result);
                 }
                 Poll::Ready(Err(e)) => {
                     println!("Poll::Ready(Err({:?}))", e);
-                    return Poll::Ready(Err(Http11Error::StdIoError(e)));
+                    return Poll::Ready(Err(e));
                 }
             }
         }
     }
 }
 
-fn read_http11_request<'a, T>(input: &'a mut T, buf: &'a mut Buffer) -> ReadHttp11Request<'a, T>
-    where T: AsyncRead + std::marker::Unpin {
-    ReadHttp11Request::new(Pin::new(input), Pin::new(buf))
+fn read_delimited_and_parse<'a, T1, T2>(
+    input: &'a mut T1,
+    buf: &'a mut Buffer,
+    delim: &'a [u8],
+    parser: fn(&[u8]) -> T2) -> ReadDelimitedAndParse<'a, T1, T2>
+    where T1: AsyncRead + std::marker::Unpin {
+    ReadDelimitedAndParse {
+        input: Pin::new(input),
+        buf: Pin::new(buf),
+        delim,
+        parser,
+        cursor: NoBorrowCursor::new(),
+    }
 }
 
-async fn send_100_continue<T>(output: &mut T) -> Result<(), Http11Error>
+async fn send_100_continue<T>(output: &mut T) -> std::io::Result<()>
     where T: AsyncWrite + std::marker::Unpin
 {
-    tokio::io::AsyncWriteExt::write(output, b"100 Continue\r\n\r\n")
-        .await
-        .map_err(|e| Http11Error::StdIoError(e))?;
+    tokio::io::AsyncWriteExt::write(output, b"100 Continue\r\n\r\n").await?;
     Ok(())
 }
 
-pub async fn async_main() -> Result<(), Http11Error> {
-    let mut async_readable = AsyncReadable(0);
+pub async fn async_main() -> std::io::Result<()> {
+    let mut async_readable = AsyncReadable(vec!(
+        AsyncReadableAction::Data("aaa\r\nbbb\r\n".into()),
+        AsyncReadableAction::Data("ccc\r\n".into()),
+        AsyncReadableAction::Pending,
+        AsyncReadableAction::Data("ddd\r\n\r\neee\r\n".into()),
+        AsyncReadableAction::Error(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "eof")),
+        AsyncReadableAction::Data("fff\r\n".into()),
+    ));
     let mut buffer = Buffer::new();
-    let req = read_http11_request(&mut async_readable, &mut buffer).await?;
+    println!("buffer {:?}", escape_ascii(buffer.readable()));
+    buffer.shift();
+    println!("buffer {:?}", escape_ascii(buffer.readable()));
+    let req = read_delimited_and_parse(
+        &mut async_readable,
+        &mut buffer,
+        b"\r\n\r\n",
+        Http11Request::parse_head)
+        .await?
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e).to_string()))?;
     println!("req {:?}", req);
-    println!("buffer rest {:?}", escape_ascii(buffer.readable()));
-    let mut logging_writable = LoggingWritable;
+    println!("buffer {:?}", escape_ascii(buffer.readable()));
+    buffer.shift();
+    println!("buffer {:?}", escape_ascii(buffer.readable()));
+    let mut rest = String::new();
+    tokio::io::AsyncReadExt::read_to_string(&mut buffer, &mut rest).await.unwrap();
+    println!("buffer {:?}", rest);
+    let mut logging_writable = AsyncWriteLogger;
     if req.expecting_100_continue {
         send_100_continue(&mut logging_writable).await?;
     }
