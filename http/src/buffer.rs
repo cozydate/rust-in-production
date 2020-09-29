@@ -56,6 +56,42 @@ impl Buffer {
         }
     }
 
+    /// Reads from `input` into the buffer until it finds `delim`.
+    /// Returns the slice up until `delim`.
+    /// Leaves unused bytes in the buffer.
+    /// If the buffer already contains `delim`, returns the data immediately without reading from `input`.
+    /// Returns Err(InvalidData) if the buffer fills up before `delim` is found.
+    pub async fn read_delimited<'a, T>(&'a mut self, input: &'a mut T, delim: &[u8])
+                                       -> std::io::Result<&'a [u8]>
+        where T: AsyncRead + std::marker::Unpin {
+        loop {
+            //println!("read_delimited() data {:?}", escape_ascii(self.readable()));
+            if let Some(delim_index) = self.readable()
+                .windows(delim.len())
+                .enumerate()
+                .filter(|(_index, window)| *window == delim)
+                .map(|(index, _window)| index)
+                .next()
+            {
+                let result_start = self.read_index;
+                self.read_index = delim_index + delim.len();
+                //println!("read_delimited() rest {:?}", escape_ascii(self.readable()));
+                return Ok(&self.buf[result_start..delim_index]);
+            }
+            let writable = self.writable()
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData, "buffer full"))?;
+            let num_bytes_read =
+                tokio::io::AsyncReadExt::read(input, writable).await?;
+            if num_bytes_read == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof, "eof before delim read"));
+            }
+            //println!("read_delimited() read {} bytes", num_bytes_read);
+            self.wrote(num_bytes_read);
+        }
+    }
+
     // shift() moves data to the beginning of the buffer.
     pub fn shift(&mut self) {
         if self.read_index == 0 {
@@ -67,7 +103,7 @@ impl Buffer {
 
 impl AsyncRead for Buffer {
     fn poll_read(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<tokio::io::Result<usize>> {
-        println!("Buffer poll_read");
+        //println!("Buffer poll_read");
         let bytes_read = match buf.write(self.readable()) {
             Err(e) => {
                 return Poll::Ready(Err(e));
