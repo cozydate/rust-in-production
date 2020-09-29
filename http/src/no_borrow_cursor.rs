@@ -18,4 +18,19 @@ impl NoBorrowCursor {
         self.0 = data.len();
         None
     }
+
+    pub fn find_delim(&mut self, data: & [u8], sep: &[u8]) -> Option<usize> {
+        if self.0 > data.len() {
+            panic!("data is smaller than last call");
+        }
+        let start = if self.0 < sep.len() { 0 } else { self.0 - sep.len() };
+        let region = &data[start..];
+        for (region_index, window) in region.windows(sep.len()).enumerate() {
+            if window == sep {
+                return Some(start + region_index);
+            }
+        }
+        self.0 = data.len();
+        None
+    }
 }
