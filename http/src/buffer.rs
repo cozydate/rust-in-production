@@ -4,19 +4,23 @@ use std::task::Context;
 use tokio::io::AsyncRead;
 use tokio::macros::support::{Pin, Poll};
 
-pub struct Buffer {
-    buf: [u8; 4 * 1024],
+pub struct Buffer<'a> {
+    buf: &'a mut [u8],
     write_index: usize,
     read_index: usize,
 }
 
-impl Buffer {
-    pub fn new() -> Buffer {
+impl<'a> Buffer<'a> {
+    pub fn new(buf: &'a mut [u8]) -> Buffer {
         Buffer {
-            buf: [0; 4 * 1024],
+            buf,
             write_index: 0,
             read_index: 0,
         }
+    }
+
+    pub fn append(&mut self, s: &str) {
+        self.write(s.as_bytes()).unwrap();
     }
 
     pub fn writable(&mut self) -> Option<&mut [u8]> {
@@ -46,19 +50,24 @@ impl Buffer {
         }
         self.read_index = new_read_index;
         if self.read_index == self.write_index {
-            // All data has been read.  Reset the buffer.
-            self.write_index = 0;
-            self.read_index = 0;
+            self.read_all();
         }
     }
+
+    pub fn read_all(&mut self) {
+        // All data has been read.  Reset the buffer.
+        self.write_index = 0;
+        self.read_index = 0;
+    }
+
 
     /// Reads from `input` into the buffer until it finds `delim`.
     /// Returns the slice up until `delim`.
     /// Leaves unused bytes in the buffer.
     /// If the buffer already contains `delim`, returns the data immediately without reading from `input`.
     /// Returns Err(InvalidData) if the buffer fills up before `delim` is found.
-    pub async fn read_delimited<'a, T>(&'a mut self, input: &'a mut T, delim: &[u8])
-                                       -> std::io::Result<&'a [u8]>
+    pub async fn read_delimited<'b, T>(&'b mut self, input: &'b mut T, delim: &[u8])
+                                       -> std::io::Result<&'b [u8]>
         where T: AsyncRead + std::marker::Unpin {
         loop {
             //println!("read_delimited() data {:?}", escape_ascii(self.readable()));
@@ -93,11 +102,32 @@ impl Buffer {
         if self.read_index == 0 {
             return;
         }
-        self.buf.copy_within(self.read_index..self.write_index, 0)
+        self.buf.copy_within(self.read_index..self.write_index, 0);
+        self.write_index -= self.read_index;
+        self.read_index = 0;
     }
 }
 
-impl AsyncRead for Buffer {
+impl<'a> std::io::Write for Buffer<'a> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        let writable = self.writable()
+            .ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidData, "Buffer full"))?;
+        if writable.len() < data.len() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData, "Not enough free space in Buffer"));
+        }
+        let dest = &mut writable[..data.len()];
+        dest.copy_from_slice(data);
+        self.wrote(data.len());
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+}
+
+
+impl<'a> AsyncRead for Buffer<'a> {
     fn poll_read(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<tokio::io::Result<usize>> {
         //println!("Buffer poll_read");
         let bytes_read = match buf.write(self.readable()) {

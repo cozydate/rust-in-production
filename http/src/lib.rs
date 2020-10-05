@@ -1,3 +1,6 @@
+use std::convert::TryFrom;
+use std::fmt::Formatter;
+
 use lazy_static::lazy_static;
 use string_wrapper::StringWrapper;
 
@@ -5,6 +8,7 @@ pub mod buffer;
 pub mod async_write_logger;
 pub mod async_readable;
 pub mod split_iterate;
+pub mod async_write_buffer;
 
 pub fn escape_ascii(input: &[u8]) -> String {
     let mut result = String::new();
@@ -15,17 +19,6 @@ pub fn escape_ascii(input: &[u8]) -> String {
     }
     result
 }
-
-// pub async fn send_100_continue<T>(output: &mut T) -> std::io::Result<()>
-//     where T: tokio::io::AsyncWrite + std::marker::Unpin
-// {
-//     tokio::io::AsyncWriteExt::write(output, b"100 Continue\r\n\r\n").await?;
-//     Ok(())
-// }
-//
-//                     if req.expecting_100_continue {
-//                         send_100_continue(&mut tcp_writer).await?;
-//                     }
 
 
 // use std::net::SocketAddr;
@@ -249,7 +242,7 @@ impl<'a> Header<'a> {
 pub struct Http11Request {
     pub method: Http11Method,
     pub path: StringWrapper<[u8; 512]>,
-    pub expecting_100_continue: bool,
+    pub expect_100_continue: bool,
     pub content_length: u64,
     pub chunked: bool,
 }
@@ -324,19 +317,99 @@ impl Http11Request {
         Ok(Http11Request {
             method: request_line.method()?,
             path: request_line.path()?,
-            expecting_100_continue: is_100_continue(&expect)?,
+            expect_100_continue: is_100_continue(&expect)?,
             content_length: parse_content_length(&content_length)?,
             chunked: is_chunked(&transfer_encoding)?,
         })
     }
 }
 
-pub async fn read_http11_request<'a, T>(input: &'a mut T, buf: &'a mut buffer::Buffer)
-                                        -> std::io::Result<Http11Request>
+pub async fn read_http11_request<'a, 'b, T>(input: &'a mut T, buf: &'a mut buffer::Buffer<'b>)
+                                            -> std::io::Result<Http11Request>
     where T: tokio::io::AsyncRead + std::marker::Unpin {
     // beatrice_http::buffer::fill_delimited(input, buf, b"\r\n\r\n").await?;
     // let head = beatrice_http::buffer::read_delimited(buf, b"\r\n\r\n")?;
     let head = buf.read_delimited(input, b"\r\n\r\n").await?;
     Http11Request::parse_head(head, &mut [])
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e).to_string()))
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Http11Status {
+    Continue100,
+    Ok200,
+    Created201,
+    NotFound404,
+    MethodNotAllowed405,
+    InternalServerError500,
+}
+
+impl Http11Status {
+    pub fn as_line(&self) -> &'static str {
+        match self {
+            Http11Status::Continue100 => "HTTP/1.1 100 Continue",
+            Http11Status::Ok200 => "HTTP/1.1 200 OK",
+            Http11Status::Created201 => "HTTP/1.1 201 Created",
+            Http11Status::NotFound404 => "HTTP/1.1 404 Not Found",
+            Http11Status::MethodNotAllowed405 => "HTTP/1.1 405 Method Not Allowed",
+            Http11Status::InternalServerError500 => "HTTP/1.1 500 Internal Server Error",
+        }
+    }
+}
+
+pub struct Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+    output: &'a mut T,
+    status: Option<Http11Status>,
+    bytes_written: u64,
+}
+
+impl<'a, T> std::fmt::Debug for Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Http11ResponseWriter{{{:?}, bytes_written={}}}",
+               self.status, self.bytes_written)
+    }
+}
+
+impl<'a, T> Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+    pub fn new<'b>(output: &'b mut T) -> Http11ResponseWriter<'b, T> {
+        Http11ResponseWriter {
+            output,
+            status: None,
+            bytes_written: 0,
+        }
+    }
+
+    pub async fn send_without_body(&mut self, status: Http11Status) -> std::io::Result<()> {
+        let mut line: StringWrapper<[u8; 64]> = StringWrapper::from_str("");
+        line.push_str(status.as_line());
+        line.push_str("\r\n\r\n");
+        let line_bytes = line.as_bytes();
+        tokio::io::AsyncWriteExt::write(self.output, line_bytes).await?;
+        self.status = Some(status);
+        self.bytes_written += u64::try_from(line_bytes.len()).unwrap();
+        Ok(())
+    }
+
+    pub async fn send_text(&mut self, status: Http11Status, body: &str) -> std::io::Result<()> {
+        let mut mem: [u8; 100] = [0; 100];
+        let mut buf = buffer::Buffer::new(&mut mem[..]);
+        buf.append(status.as_line());
+        buf.append("\r\n");
+        buf.append("content-type: text/plain; charset=UTF-8\r\n");
+        buf.append("content-length: ");
+        itoa::write(&mut buf, body.len()).unwrap();  // Write num without allocating.
+        buf.append("\r\n");
+        buf.append("\r\n");
+        let to_write = buf.readable();
+        tokio::io::AsyncWriteExt::write_all(self.output, to_write).await?;
+        self.bytes_written += u64::try_from(to_write.len()).unwrap();
+        buf.read_all();
+
+        let body_bytes = body.as_bytes();
+        tokio::io::AsyncWriteExt::write(self.output, body_bytes).await?;
+        self.bytes_written += u64::try_from(body_bytes.len()).unwrap();
+
+        self.status = Some(status);
+        Ok(())
+    }
 }
