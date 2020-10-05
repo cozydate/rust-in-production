@@ -60,7 +60,6 @@ impl<'a> Buffer<'a> {
         self.read_index = 0;
     }
 
-
     /// Reads from `input` into the buffer until it finds `delim`.
     /// Returns the slice up until `delim`.
     /// Leaves unused bytes in the buffer.
@@ -125,7 +124,6 @@ impl<'a> std::io::Write for Buffer<'a> {
 
     fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
 }
-
 
 impl<'a> AsyncRead for Buffer<'a> {
     fn poll_read(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, mut buf: &mut [u8]) -> Poll<tokio::io::Result<usize>> {

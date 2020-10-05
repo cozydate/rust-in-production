@@ -113,7 +113,20 @@ pub fn escape_ascii(input: &[u8]) -> String {
 // }
 
 #[derive(Debug)]
-pub enum Http11Error {
+pub enum HttpError {
+    IoError(std::io::Error),
+    ParseError(HttpCallerError),
+    ProcessingError(HttpRequest, HttpStatus),
+}
+
+impl HttpError {
+    pub fn from_io_err(e: std::io::Error) -> HttpError {
+        HttpError::IoError(e)
+    }
+}
+
+#[derive(Debug)]
+pub enum HttpCallerError {
     ExtraHeadersTooLong,
     RequestLineMissing,
     RequestLineInvalid,
@@ -128,8 +141,27 @@ pub enum Http11Error {
     ContentLengthHeaderInvalid,
 }
 
-#[derive(Debug)]
-pub enum Http11Method {
+impl HttpCallerError {
+    pub fn status(&self) -> HttpStatus {
+        match self {
+            Self::ExtraHeadersTooLong => HttpStatus::RequestHeaderFieldsTooLarge431,
+            Self::RequestLineMissing => HttpStatus::BadRequest400,
+            Self::RequestLineInvalid => HttpStatus::BadRequest400,
+            Self::MethodInvalid => HttpStatus::MethodNotAllowed405,
+            Self::MethodTooLong => HttpStatus::MethodNotAllowed405,
+            Self::PathInvalid => HttpStatus::NotFound404,
+            Self::PathTooLong => HttpStatus::UriTooLong414,
+            Self::HeaderLineInvalid => HttpStatus::BadRequest400,
+            Self::HeaderValueTooLong => HttpStatus::RequestHeaderFieldsTooLarge431,
+            Self::ExpectHeaderInvalid => HttpStatus::BadRequest400,
+            Self::TransferEncodingHeaderInvalid => HttpStatus::BadRequest400,
+            Self::ContentLengthHeaderInvalid => HttpStatus::BadRequest400,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum HttpMethod {
     DELETE,
     GET,
     HEAD,
@@ -138,76 +170,76 @@ pub enum Http11Method {
     Other(string_wrapper::StringWrapper<[u8; 16]>),
 }
 
-impl Http11Method {
-    pub fn from_str(s: &str) -> Result<Http11Method, Http11Error> {
+impl HttpMethod {
+    pub fn from_str(s: &str) -> Result<HttpMethod, HttpError> {
         // HTTP/1.1 Request Methods https://tools.ietf.org/html/rfc7231#section-4
         //println!("Http11Method::from_str {:?}", s);
         lazy_static! {
             static ref METHOD_RE: regex::Regex = regex::Regex::new("^[A-Z][A-Z0-9]*$").unwrap();
         }
         if !METHOD_RE.is_match(s) {
-            return Err(Http11Error::MethodInvalid);
+            return Err(HttpError::ParseError(HttpCallerError::MethodInvalid));
         }
         match s {
-            "DELETE" => Ok(Http11Method::DELETE),
-            "GET" => Ok(Http11Method::GET),
-            "HEAD" => Ok(Http11Method::HEAD),
-            "POST" => Ok(Http11Method::POST),
-            "PUT" => Ok(Http11Method::PUT),
+            "DELETE" => Ok(HttpMethod::DELETE),
+            "GET" => Ok(HttpMethod::GET),
+            "HEAD" => Ok(HttpMethod::HEAD),
+            "POST" => Ok(HttpMethod::POST),
+            "PUT" => Ok(HttpMethod::PUT),
             s => StringWrapper::from_str_safe(s)
-                .map(|sw| Http11Method::Other(sw))
-                .ok_or(Http11Error::MethodTooLong),
+                .map(|sw| HttpMethod::Other(sw))
+                .ok_or(HttpError::ParseError(HttpCallerError::MethodTooLong)),
         }
     }
 }
 
-pub struct Http11RequestLine<'a> {
+pub struct HttpRequestLine<'a> {
     pub method: &'a str,
     pub path: &'a str,
 }
 
-impl<'a> Http11RequestLine<'a> {
-    pub fn parse(line_bytes: &[u8]) -> Result<Http11RequestLine, Http11Error> {
+impl<'a> HttpRequestLine<'a> {
+    pub fn parse(line_bytes: &[u8]) -> Result<HttpRequestLine, HttpError> {
         //println!("Http11RequestLine::parse {:?}", escape_ascii(line_bytes));
         // HTTP/1.1 Request Line https://tools.ietf.org/html/rfc7230#section-3.1.1
         let line = std::str::from_utf8(line_bytes)
-            .map_err(|_| Http11Error::RequestLineInvalid)?;
+            .map_err(|_| HttpError::ParseError(HttpCallerError::RequestLineInvalid))?;
         lazy_static! {
             static ref REQUEST_LINE_RE: regex::Regex =
                 regex::Regex::new("^([^ ]+) (/[^ ]*) HTTP/1.1$").unwrap();
         }
         let captures: regex::Captures = REQUEST_LINE_RE.captures(line)
-            .ok_or(Http11Error::RequestLineInvalid)?;
+            .ok_or(HttpError::ParseError(HttpCallerError::RequestLineInvalid))?;
         let method = captures.get(1).unwrap().as_str();
         let path = captures.get(2).unwrap().as_str();
-        Ok(Http11RequestLine { method, path })
+        Ok(HttpRequestLine { method, path })
     }
 
-    pub fn method(&self) -> Result<Http11Method, Http11Error> {
-        Ok(Http11Method::from_str(&self.method)?)
+    pub fn method(&self) -> Result<HttpMethod, HttpError> {
+        Ok(HttpMethod::from_str(&self.method)?)
     }
 
-    pub fn path(&self) -> Result<StringWrapper<[u8; 512]>, Http11Error> {
+    pub fn path(&self) -> Result<StringWrapper<[u8; 512]>, HttpError> {
         let cow_str = percent_encoding::percent_decode_str(self.path)
             .decode_utf8()
-            .map_err(|_e| Http11Error::PathInvalid)?;
+            .map_err(|_e| HttpError::ParseError(HttpCallerError::PathInvalid))?;
         let result = StringWrapper::from_str_safe(&cow_str)
-            .ok_or(Http11Error::PathTooLong)?;
+            .ok_or(HttpError::ParseError(HttpCallerError::PathTooLong))?;
         Ok(result)
     }
 }
 
-pub fn is_chunked(header: &Header) -> Result<bool, Http11Error> {
+pub fn is_chunked(header: &Header) -> Result<bool, HttpError> {
     if header.value.is_empty() {
         return Ok(false);
     }
     if header.value.eq_ignore_ascii_case("chunked") {
         return Ok(true);
     }
-    Err(Http11Error::TransferEncodingHeaderInvalid)
+    Err(HttpError::ParseError(HttpCallerError::TransferEncodingHeaderInvalid))
 }
 
-pub fn is_100_continue(header: &Header) -> Result<bool, Http11Error> {
+pub fn is_100_continue(header: &Header) -> Result<bool, HttpError> {
     // HTTP/1.1 Expect https://tools.ietf.org/html/rfc7231#section-5.1.1
     if header.value.is_empty() {
         return Ok(false);
@@ -215,15 +247,15 @@ pub fn is_100_continue(header: &Header) -> Result<bool, Http11Error> {
     if header.value.eq_ignore_ascii_case("100-continue") {
         return Ok(true);
     }
-    Err(Http11Error::ExpectHeaderInvalid)
+    Err(HttpError::ParseError(HttpCallerError::ExpectHeaderInvalid))
 }
 
-pub fn parse_content_length(header: &Header) -> Result<u64, Http11Error> {
+pub fn parse_content_length(header: &Header) -> Result<u64, HttpError> {
     if header.value.is_empty() {
         return Ok(0);
     }
     let content_length: u64 = std::str::FromStr::from_str(&header.value)
-        .map_err(|_e| Http11Error::ContentLengthHeaderInvalid)?;
+        .map_err(|_e| HttpError::ParseError(HttpCallerError::ContentLengthHeaderInvalid))?;
     Ok(content_length)
 }
 
@@ -239,22 +271,23 @@ impl<'a> Header<'a> {
 }
 
 #[derive(Debug)]
-pub struct Http11Request {
-    pub method: Http11Method,
+pub struct HttpRequest {
+    pub method: HttpMethod,
     pub path: StringWrapper<[u8; 512]>,
     pub expect_100_continue: bool,
     pub content_length: u64,
     pub chunked: bool,
 }
 
-impl Http11Request {
+impl HttpRequest {
     pub fn has_body(&self) -> bool {
         // The presence of a message body in a request is signaled by a Content-Length or
         // Transfer-Encoding header field.
         self.chunked || self.content_length > 0
     }
 
-    fn save_header_value(name: &str, value: &str, headers: &mut [&mut Header]) -> Result<(), Http11Error> {
+    fn save_header_value(name: &str, value: &str, headers: &mut [&mut Header])
+                         -> Result<(), HttpError> {
         // For-loops call .iter() and cannot mutate the returned reference:
         // ```
         // for header in headers {...}  // error[E0382]: use of moved value: `headers`
@@ -265,14 +298,14 @@ impl Http11Request {
             .next() {
             header.value.truncate(0);
             header.value.push_partial_str(value)
-                .or(Err(Http11Error::HeaderValueTooLong))?;
+                .or(Err(HttpError::ParseError(HttpCallerError::HeaderValueTooLong)))?;
         }
         Ok(())
     }
 
     pub fn parse_headers(
         lines: split_iterate::SplitIterator, headers: &mut [&mut Header], extra_headers: &mut [&mut Header])
-        -> Result<(), Http11Error> {
+        -> Result<(), HttpError> {
         for line_bytes in lines {
             //println!("Http11Request::parse_headers line {:?}", escape_ascii(line_bytes));
             if line_bytes.is_empty() {
@@ -280,13 +313,13 @@ impl Http11Request {
             }
             // HTTP/1.1 Header Fields https://tools.ietf.org/html/rfc7230#section-3.2
             let line = std::str::from_utf8(line_bytes)
-                .or(Err(Http11Error::HeaderLineInvalid))?;
+                .or(Err(HttpError::ParseError(HttpCallerError::HeaderLineInvalid)))?;
             lazy_static! {
                 static ref LINE_RE: regex::Regex
                     = regex::Regex::new("^([^:]+):\\s*(.*?)\\s*$").unwrap();
             }
             let captures: regex::Captures = LINE_RE.captures(line)
-                .ok_or(Http11Error::HeaderLineInvalid)?;
+                .ok_or(HttpError::ParseError(HttpCallerError::HeaderLineInvalid))?;
             let name = captures.get(1).unwrap().as_str();
             let value = captures.get(2).unwrap().as_str();
 
@@ -296,16 +329,17 @@ impl Http11Request {
         Ok(())
     }
 
-    pub fn parse_head(head: &[u8], extra_headers: &mut [&mut Header]) -> Result<Http11Request, Http11Error> {
+    pub fn parse_head(head: &[u8], extra_headers: &mut [&mut Header]) -> Result<HttpRequest, HttpError> {
         //println!("Http11Request::parse_head {:?}", escape_ascii(head));
         if extra_headers.len() > 10 {
-            return Err(Http11Error::ExtraHeadersTooLong);
+            return Err(HttpError::ParseError(HttpCallerError::ExtraHeadersTooLong));
         }
         // "HTTP/1.1 Message Syntax and Routing" https://tools.ietf.org/html/rfc7230
         let mut lines = split_iterate::split_iterate(head, b"\r\n");
 
-        let line_bytes = lines.next().ok_or(Http11Error::RequestLineMissing)?;
-        let request_line = Http11RequestLine::parse(line_bytes)?;
+        let line_bytes = lines.next()
+            .ok_or(HttpError::ParseError(HttpCallerError::RequestLineMissing))?;
+        let request_line = HttpRequestLine::parse(line_bytes)?;
 
         let mut content_length = Header::new("content-length");
         let mut expect = Header::new("expect");
@@ -314,7 +348,7 @@ impl Http11Request {
             lines,
             &mut [&mut content_length, &mut expect, &mut transfer_encoding],
             extra_headers)?;
-        Ok(Http11Request {
+        Ok(HttpRequest {
             method: request_line.method()?,
             path: request_line.path()?,
             expect_100_continue: is_100_continue(&expect)?,
@@ -324,62 +358,72 @@ impl Http11Request {
     }
 }
 
-pub async fn read_http11_request<'a, 'b, T>(input: &'a mut T, buf: &'a mut buffer::Buffer<'b>)
-                                            -> std::io::Result<Http11Request>
+pub async fn read_http_request<'a, 'b, T>(input: &'a mut T, buf: &'a mut buffer::Buffer<'b>)
+                                          -> Result<HttpRequest, HttpError>
     where T: tokio::io::AsyncRead + std::marker::Unpin {
     // beatrice_http::buffer::fill_delimited(input, buf, b"\r\n\r\n").await?;
     // let head = beatrice_http::buffer::read_delimited(buf, b"\r\n\r\n")?;
-    let head = buf.read_delimited(input, b"\r\n\r\n").await?;
-    Http11Request::parse_head(head, &mut [])
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", e).to_string()))
+    let head = buf.read_delimited(input, b"\r\n\r\n")
+        .await
+        .map_err(|e| HttpError::IoError(e))
+        ?;
+    HttpRequest::parse_head(head, &mut [])
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Http11Status {
+pub enum HttpStatus {
     Continue100,
     Ok200,
     Created201,
+    BadRequest400,
     NotFound404,
     MethodNotAllowed405,
+    LengthRequired411,
+    UriTooLong414,
+    RequestHeaderFieldsTooLarge431,
     InternalServerError500,
 }
 
-impl Http11Status {
+impl HttpStatus {
     pub fn as_line(&self) -> &'static str {
         match self {
-            Http11Status::Continue100 => "HTTP/1.1 100 Continue",
-            Http11Status::Ok200 => "HTTP/1.1 200 OK",
-            Http11Status::Created201 => "HTTP/1.1 201 Created",
-            Http11Status::NotFound404 => "HTTP/1.1 404 Not Found",
-            Http11Status::MethodNotAllowed405 => "HTTP/1.1 405 Method Not Allowed",
-            Http11Status::InternalServerError500 => "HTTP/1.1 500 Internal Server Error",
+            HttpStatus::Continue100 => "HTTP/1.1 100 Continue",
+            HttpStatus::Ok200 => "HTTP/1.1 200 OK",
+            HttpStatus::Created201 => "HTTP/1.1 201 Created",
+            HttpStatus::BadRequest400 => "400 Bad Request",
+            HttpStatus::NotFound404 => "HTTP/1.1 404 Not Found",
+            HttpStatus::MethodNotAllowed405 => "HTTP/1.1 405 Method Not Allowed",
+            HttpStatus::LengthRequired411 => "HTTP/1.1 411 Length Required",
+            HttpStatus::UriTooLong414 => "414 URI Too Long",
+            HttpStatus::RequestHeaderFieldsTooLarge431 => "431 Request Header Fields Too Large",
+            HttpStatus::InternalServerError500 => "HTTP/1.1 500 Internal Server Error",
         }
     }
 }
 
-pub struct Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+pub struct HttpResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
     output: &'a mut T,
-    status: Option<Http11Status>,
+    status: Option<HttpStatus>,
     bytes_written: u64,
 }
 
-impl<'a, T> std::fmt::Debug for Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+impl<'a, T> std::fmt::Debug for HttpResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         write!(f, "Http11ResponseWriter{{{:?}, bytes_written={}}}",
                self.status, self.bytes_written)
     }
 }
 
-impl<'a, T> Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
-    pub fn new<'b>(output: &'b mut T) -> Http11ResponseWriter<'b, T> {
-        Http11ResponseWriter {
+impl<'a, T> HttpResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::marker::Unpin {
+    pub fn new<'b>(output: &'b mut T) -> HttpResponseWriter<'b, T> {
+        HttpResponseWriter {
             output,
             status: None,
             bytes_written: 0,
         }
     }
 
-    pub async fn send_without_body(&mut self, status: Http11Status) -> std::io::Result<()> {
+    pub async fn send_without_body(&mut self, status: HttpStatus) -> std::io::Result<()> {
         let mut line: StringWrapper<[u8; 64]> = StringWrapper::from_str("");
         line.push_str(status.as_line());
         line.push_str("\r\n\r\n");
@@ -390,7 +434,7 @@ impl<'a, T> Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::ma
         Ok(())
     }
 
-    pub async fn send_text(&mut self, status: Http11Status, body: &str) -> std::io::Result<()> {
+    pub async fn send_text(&mut self, status: HttpStatus, body: &str) -> Result<(), HttpError> {
         let mut mem: [u8; 100] = [0; 100];
         let mut buf = buffer::Buffer::new(&mut mem[..]);
         buf.append(status.as_line());
@@ -401,15 +445,24 @@ impl<'a, T> Http11ResponseWriter<'a, T> where T: tokio::io::AsyncWrite + std::ma
         buf.append("\r\n");
         buf.append("\r\n");
         let to_write = buf.readable();
-        tokio::io::AsyncWriteExt::write_all(self.output, to_write).await?;
+        tokio::io::AsyncWriteExt::write_all(self.output, to_write)
+            .await
+            .map_err(HttpError::from_io_err)?;
         self.bytes_written += u64::try_from(to_write.len()).unwrap();
         buf.read_all();
 
         let body_bytes = body.as_bytes();
-        tokio::io::AsyncWriteExt::write(self.output, body_bytes).await?;
+        tokio::io::AsyncWriteExt::write(self.output, body_bytes)
+            .await
+            .map_err(HttpError::from_io_err)?;
         self.bytes_written += u64::try_from(body_bytes.len()).unwrap();
 
         self.status = Some(status);
         Ok(())
+    }
+
+    pub fn reset(&mut self) {
+        self.status = None;
+        self.bytes_written = 0;
     }
 }
