@@ -320,7 +320,7 @@ pub struct HttpReaderWriter<'a> {
     chunked: bool,
     output: Pin<&'a mut (dyn tokio::io::AsyncWrite + std::marker::Send + std::marker::Unpin)>,
     status: Option<HttpStatus>,
-    unsent_body_byte_count: u64,
+    unsent_content_length: Option<u64>,
     bytes_written: u64,
 }
 
@@ -339,7 +339,7 @@ impl<'a> HttpReaderWriter<'a> {
             chunked: false,
             output,
             status: None,
-            unsent_body_byte_count: 0,
+            unsent_content_length: Some(0),
             bytes_written: 0,
         }
     }
@@ -374,6 +374,22 @@ impl<'a> HttpReaderWriter<'a> {
 
     pub async fn read_request<'b>(&'b mut self, extra_headers: &'b mut [&mut HeaderReceiver<'b>])
                                   -> Result<(), HttpError> {
+        if let Some(unsent) = self.unsent_content_length {
+            if unsent > 0 {
+                return Err(HttpError::ProcessingError(HttpStatus::InternalServerError500(
+                    String::from("previous request body not completely sent")
+                )));
+            }
+        }
+        self.method = None;
+        self.raw_path.truncate(0);
+        self.unsent_expect_100_bytes = &[];
+        self.content_length = 0;
+        self.chunked = false;
+        self.status = None;
+        self.unsent_content_length = None;
+        self.bytes_written = 0;
+
         // "HTTP/1.1 Message Syntax and Routing" https://tools.ietf.org/html/rfc7230
         let head = self.buffer.read_delimited(&mut self.input, b"\r\n\r\n")
             .await
@@ -475,7 +491,8 @@ impl<'a> HttpReaderWriter<'a> {
     pub async fn send_simple(&mut self, status: HttpStatus) -> Result<(), HttpError> {
         let mut buf = owning_buffer::OwningBuffer::new();
         buf.append(status.as_line());
-        buf.append("content-length:0\r\n\r\n");
+        buf.append("content-length: 0\r\n\r\n");
+        self.unsent_content_length = Some(0);
         self.send(buf.read_all()).await?;
         self.status = Some(status);
         Ok(())
@@ -486,6 +503,7 @@ impl<'a> HttpReaderWriter<'a> {
         let mut buf = owning_buffer::OwningBuffer::new();
         buf.append(status.as_line());
         Self::append_content_length(&mut buf, 0)?;
+        self.unsent_content_length = Some(0);
         Self::reject_header("transfer-encoding", extra_headers)?;
         Self::reject_header("content-length", extra_headers)?;
         Self::reject_header("content-type", extra_headers)?;
@@ -514,6 +532,7 @@ impl<'a> HttpReaderWriter<'a> {
         buf.append("\r\n");
         self.send(buf.read_all()).await?;
         self.send(body.as_bytes()).await?;
+        self.unsent_content_length = Some(0);
         self.status = Some(status);
         Ok(())
     }
@@ -523,10 +542,9 @@ impl<'a> HttpReaderWriter<'a> {
         -> Result<(), HttpError> {
         let mut buf = owning_buffer::OwningBuffer::new();
         buf.append(status.as_line());
-        if content_length > 0 {
-            Self::append_content_length(&mut buf, content_length)?;
-            self.unsent_body_byte_count = content_length;
-        }
+        //buf.append("transfer-encoding: chunked\r\n");
+        Self::append_content_length(&mut buf, content_length)?;
+        self.unsent_content_length = Some(content_length);
         Self::reject_header("transfer-encoding", extra_headers)?;
         Self::reject_header("content-length", extra_headers)?;
         Self::append_extra_headers(&mut buf, extra_headers)?;
@@ -600,9 +618,21 @@ impl<'a> AsyncRead for HttpReaderWriter<'a> {
 impl<'a> AsyncWrite for HttpReaderWriter<'a> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
                   -> Poll<tokio::io::Result<usize>> {
+        if let Some(unsent_len) = self.unsent_content_length {
+            if unsent_len < buf.len() as u64 {
+                return Poll::Ready(
+                    tokio::io::Result::Err(
+                        tokio::io::Error::new(
+                            tokio::io::ErrorKind::InvalidInput,
+                            "cannot write more than content-length bytes")));
+            }
+        }
         let mut_self = &mut self.get_mut();
         match tokio::io::AsyncWrite::poll_write(Pin::new(&mut mut_self.output), cx, buf) {
             Poll::Ready(Ok(bytes_written)) => {
+                if bytes_written > buf.len() {
+                    panic!("input.poll_write wrote more bytes than we asked it to");
+                }
                 let written = &buf[..bytes_written];
                 if written.len() < 50 {
                     println!("HttpReaderWriter::poll_write wrote {} bytes {:?}",
@@ -612,6 +642,9 @@ impl<'a> AsyncWrite for HttpReaderWriter<'a> {
                              written.len(), escape_ascii(&written[..50]));
                 }
                 mut_self.bytes_written += bytes_written as u64;
+                if let Some(unsent_len) = mut_self.unsent_content_length {
+                    mut_self.unsent_content_length = Some(unsent_len - bytes_written as u64);
+                }
                 Poll::Ready(Ok(bytes_written))
             }
             other => other
@@ -631,6 +664,7 @@ impl<'a> AsyncWrite for HttpReaderWriter<'a> {
 
 impl<'a> std::fmt::Debug for HttpReaderWriter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "HttpReaderWriter{{{:?}, bytes_written={}}}", self.status, self.bytes_written)
+        write!(f, "HttpReaderWriter{{{:?}, bytes_written={}, unsent_body_len={:?}}}",
+               self.status, self.bytes_written, self.unsent_content_length)
     }
 }
