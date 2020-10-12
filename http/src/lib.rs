@@ -27,27 +27,6 @@ pub fn escape_ascii(input: &[u8]) -> String {
     result
 }
 
-
-// use std::net::SocketAddr;
-// use std::sync::Arc;
-// use std::time::Duration;
-
-// use tokio::net::TcpStream;
-
-// use async_trait::async_trait;
-// use logging::info;
-// use logging::warn;
-
-// #[async_trait]
-// pub trait HttpSessionHandler {
-//     async fn handle(&self, session: &mut HttpSession);
-// }
-
-// pub struct HttpSession {
-//     pub tcp_stream: tokio::net::TcpStream,
-//     addr: std::net::SocketAddr,
-// }
-
 // impl std::fmt::Debug for HttpSession {
 //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 //         // https://doc.rust-lang.org/std/fmt/struct.Formatter.html
@@ -55,18 +34,6 @@ pub fn escape_ascii(input: &[u8]) -> String {
 //             .field("addr", &self.addr)
 //             .finish()
 //     }
-// }
-
-// impl HttpSession {
-// // pub fn shutdown(self) {
-// //     if let Err(e) = self.tcp_stream.shutdown(std::net::Shutdown::Both) {
-// //         warn!("Failed calling shutdown for tcp socket: {:?}", e);
-// //     };
-// // }
-// }
-
-// pub struct HttpServer {
-//     pub socket_addr: std::net::SocketAddr,
 // }
 
 // async fn handle_tcp_stream(tcp_stream: TcpStream, addr: SocketAddr, handler: Arc<dyn HttpSessionHandler + Send + Sync>) {
@@ -109,15 +76,6 @@ pub fn escape_ascii(input: &[u8]) -> String {
 //     }
 // }
 
-// struct Handler {}
-
-// #[async_trait]
-// impl HttpSessionHandler for Handler {
-//     async fn handle(&self, session: &mut HttpSession) {
-//         info!("Got {:?}", session);
-//         tokio::time::delay_for(Duration::from_secs(1)).await;
-//     }
-// }
 
 #[derive(Debug)]
 pub enum HttpError {
