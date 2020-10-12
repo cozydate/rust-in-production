@@ -603,7 +603,19 @@ impl<'a> HttpReaderWriter<'a> {
                 }
             }
         }
-        None
+        loop {
+            match tokio::io::AsyncWrite::poll_flush(self.output.as_mut(), cx) {
+                Poll::Ready(Ok(())) => {
+                    return None;
+                }
+                Poll::Pending => {
+                    return Some(Poll::Pending);
+                }
+                Poll::Ready(Err(e)) => {
+                    return Some(Poll::Ready(Err(e)));
+                }
+            }
+        }
     }
 }
 
