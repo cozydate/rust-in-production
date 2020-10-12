@@ -1,91 +1,79 @@
 // This program shows how to handle HTTP 1.1 requests.
+use std::pin::Pin;
 use std::println;
 
 use beatrice_http::{
+    escape_ascii,
     HttpError,
     HttpMethod,
-    HttpRequest,
-    HttpResponseWriter,
+    HttpReaderWriter,
     HttpStatus,
-    read_http_request,
 };
-use beatrice_http::buffer::Buffer;
 
-async fn handle_get<'a, T>(_req: &HttpRequest, resp: &mut HttpResponseWriter<'a, T>)
-                           -> Result<(), HttpError>
-    where T: tokio::io::AsyncWrite + std::marker::Unpin
+async fn handle_get(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
+    http_reader_writer.send_text(HttpStatus::Ok200, "body1").await
+}
+
+async fn handle_put(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError>
 {
-    resp.send_text(HttpStatus::Ok200, "body1").await
-}
-
-// async fn handle_put<'a, T1, T2>(
-//     req: &HttpRequest, body: &mut T1, resp: &mut HttpResponseWriter<'a, T2>)
-//     -> Option<HttpResult>
-//     where T1: tokio::io::AsyncRead + std::marker::Unpin,
-//           T2: tokio::io::AsyncWrite + std::marker::Unpin
-// {
-//     if req.content_length < 1 {
-//         resp.send_without_body(HttpStatus::LengthRequired411).await;
-//         return None;
-//     }
-//     if req.expect_100_continue {
-//         resp.send_without_body(HttpStatus::Continue100).await?;
-//     }
-//     let mut body_bytes: [u8; 4 * 1024] = [0; 4 * 1024];
-//     tokio::io::AsyncReadExt::read_exact(body, &mut body_bytes).await?;
-//
-//     resp.send_without_body(HttpStatus::Created201).await
-// }
-
-async fn handle_request<'a, T1, T2>(
-    _input: &mut T1, req: HttpRequest, resp: &mut HttpResponseWriter<'a, T2>)
-    -> Result<HttpRequest, HttpError>
-    where T1: tokio::io::AsyncRead + std::marker::Unpin,
-          T2: tokio::io::AsyncWrite + std::marker::Unpin {
-    if req.method != HttpMethod::GET {
-        return Err(HttpError::ProcessingError(req, HttpStatus::MethodNotAllowed405));
+    let body_len = http_reader_writer.content_length_usize()?;
+    if http_reader_writer.content_length < 1 {
+        return http_reader_writer.send_without_body(HttpStatus::LengthRequired411).await;
     }
-    handle_get(&req, resp)
+    if http_reader_writer.content_length > 4 * 1024 {
+        return http_reader_writer.send_without_body(HttpStatus::PayloadTooLarge413).await;
+    }
+    let mut body_mem: [u8; 4 * 1024] = [0; 4 * 1024];
+    let mut body_bytes = &mut body_mem[..body_len];
+    tokio::io::AsyncReadExt::read_exact(http_reader_writer, &mut body_bytes)
         .await
-        .map(|_| req)
-    //let mut body = tokio::io::AsyncReadExt::chain(buffer, tcp_reader);
-    // handle_put(&req, &mut input, &mut resp).await
+        .map_err(HttpError::from_io_err)?;
+    println!("INFO handle_put body {:?}", escape_ascii(body_bytes));
+    http_reader_writer.send_without_body(HttpStatus::Created201).await
 }
 
-async fn parse_and_handle_request<'a, T1, T2>(mut buffer: &mut Buffer<'a>,
-                                              mut input: &mut T1,
-                                              resp: &mut HttpResponseWriter<'a, T2>)
-                                              -> Result<HttpRequest, HttpError>
-    where T1: tokio::io::AsyncRead + std::marker::Unpin,
-          T2: tokio::io::AsyncWrite + std::marker::Unpin {
-    let req = read_http_request(&mut input, &mut buffer).await?;
-    handle_request(&mut input, req, resp).await
+async fn handle_request(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
+    http_reader_writer.read_request(&mut []).await?;
+    match http_reader_writer.method {
+        Some(HttpMethod::GET) => {
+            handle_get(http_reader_writer).await
+        }
+        Some(HttpMethod::PUT) => {
+            handle_put(http_reader_writer).await
+        }
+        _ => {
+            Err(HttpError::ProcessingError(HttpStatus::MethodNotAllowed405))
+        }
+    }
 }
 
 async fn handle_connection(tcp_stream: &mut tokio::net::TcpStream) {
     let (mut tcp_reader, mut tcp_writer) = tcp_stream.split();
-    let mut mem: [u8; 4 * 1024] = [0; 4 * 1024];
-    let mut buffer = Buffer::new(&mut mem[..]);
-    let mut resp = HttpResponseWriter::new(&mut tcp_writer);
+    let mut http_reader_writer =
+        HttpReaderWriter::new(Pin::new(&mut tcp_reader), Pin::new(&mut tcp_writer));
     loop {
-        buffer.shift();
-        resp.reset();
-        match parse_and_handle_request(&mut buffer, &mut tcp_reader, &mut resp).await {
+        http_reader_writer.reset();
+        match handle_request(&mut http_reader_writer).await {
             Err(HttpError::IoError(e)) => {
-                println!("INFO server io_error={:?}", e);
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    println!("INFO server client disconnected");
+                } else {
+                    println!("INFO server io_error={:?}", e);
+                }
                 let _ = tcp_stream.shutdown(std::net::Shutdown::Both);
                 break;
             }
             Err(HttpError::ParseError(e)) => {
                 println!("INFO server parse_error={:?}", e);
-                let _ = resp.send_without_body(e.status()).await;
+                let _ = http_reader_writer.send_without_body(e.status()).await;
             }
-            Err(HttpError::ProcessingError(req, status)) => {
-                println!("INFO server {:?} processing_error={:?}", req, status);
-                let _ = resp.send_without_body(status).await;
+            Err(HttpError::ProcessingError(status)) => {
+                println!("INFO server {:?} processing_error={:?}",
+                         http_reader_writer.method, status);
+                let _ = http_reader_writer.send_without_body(status).await;
             }
             Ok(req) => {
-                println!("INFO server {:?} {:?}", req, resp);
+                println!("INFO server {:?} {:?}", req, http_reader_writer);
             }
         };
     }
@@ -106,10 +94,9 @@ async fn async_main() -> () {
         }
     });
 
-    let response = reqwest::Client::new()
-        .get("http://127.0.0.1:1690/path1")
-        // .put("http://127.0.0.1:1690/path1")
-        // .body("request-body1")
+    let client = reqwest::Client::new();
+    println!("INFO client doing GET");
+    let response = client.get("http://127.0.0.1:1690/path1")
         .send()
         .await
         .unwrap();
@@ -118,6 +105,18 @@ async fn async_main() -> () {
     let body = response.bytes().await.unwrap();
     println!("INFO client response body {:?}", body);
     assert_eq!(bytes::Bytes::from_static(b"body1"), body);
+
+    println!("INFO client doing PUT");
+    let response = client.put("http://127.0.0.1:1690/path2")
+        .body("request-body1")
+        .send()
+        .await
+        .unwrap();
+    println!("INFO client response {:?}", response);
+    assert_eq!(201, response.status().as_u16());
+    let body = response.bytes().await.unwrap();
+    println!("INFO client response body {:?}", body);
+    assert_eq!(bytes::Bytes::from_static(b""), body);
 }
 
 pub fn main() {

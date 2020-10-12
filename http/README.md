@@ -13,11 +13,13 @@ That code does a lot of things.  Here are the things split into separate binarie
 - [`tls.rs`](src/bin/tls.rs) - Use TLS with certificate pinning
 - [`async_read.rs`](src/bin/async_read.rs) - Implement `tokio::io::AsyncRead`
 - [`async_read_future.rs`](src/bin/async_read_future.rs) - Make a Future that reads an `AsyncRead`
+- [`get.rs`](src/bin/get.rs) - Handle an HTTP GET request.
 
-- [`get.rs`](src/bin/get.rs)
+- [`get_hyper.rs`](src/bin/get_hyper.rs)
 - [`streaming_response.rs`](src/bin/streaming_response.rs)
 - [`request_id.rs`](src/bin/request_id.rs)
 
+TODO(mleonhard) Test: https://klau.si/blog/crashing-a-rust-hyper-server-with-a-denial-of-service-attack/
 
 https://crates.io/crates/webpki
 
