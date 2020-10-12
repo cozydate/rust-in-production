@@ -10,18 +10,30 @@ use beatrice_http::{
     HttpStatus,
 };
 
-async fn handle_get(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
-    http_reader_writer.send_text(HttpStatus::Ok200, "body1").await
+async fn handle_get(mut http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
+    if *http_reader_writer.path == *"/big" {
+        let size = 1024 * 1024;
+        http_reader_writer.send_with_content_length(HttpStatus::Ok200, &[], size)
+            .await?;
+        tokio::io::copy(
+            &mut tokio::io::AsyncReadExt::take(tokio::io::repeat('A' as u8), size),
+            &mut http_reader_writer)
+            .await
+            .and(Ok(()))
+            .map_err(HttpError::from_io_err)
+    } else {
+        http_reader_writer.send_text(HttpStatus::Ok200, &[], "body1").await
+    }
 }
 
 async fn handle_put(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError>
 {
     let body_len = http_reader_writer.content_length_usize()?;
     if http_reader_writer.content_length < 1 {
-        return http_reader_writer.send_without_body(HttpStatus::LengthRequired411).await;
+        return http_reader_writer.send_simple(HttpStatus::LengthRequired411).await;
     }
     if http_reader_writer.content_length > 4 * 1024 {
-        return http_reader_writer.send_without_body(HttpStatus::PayloadTooLarge413).await;
+        return http_reader_writer.send_simple(HttpStatus::PayloadTooLarge413).await;
     }
     let mut body_mem: [u8; 4 * 1024] = [0; 4 * 1024];
     let mut body_bytes = &mut body_mem[..body_len];
@@ -29,7 +41,7 @@ async fn handle_put(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(),
         .await
         .map_err(HttpError::from_io_err)?;
     println!("INFO handle_put body {:?}", escape_ascii(body_bytes));
-    http_reader_writer.send_without_body(HttpStatus::Created201).await
+    http_reader_writer.send_simple(HttpStatus::Created201).await
 }
 
 async fn handle_request(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
@@ -65,12 +77,12 @@ async fn handle_connection(tcp_stream: &mut tokio::net::TcpStream) {
             }
             Err(HttpError::ParseError(e)) => {
                 println!("INFO server parse_error={:?}", e);
-                let _ = http_reader_writer.send_without_body(e.status()).await;
+                let _ = http_reader_writer.send_simple(e.status()).await;
             }
             Err(HttpError::ProcessingError(status)) => {
                 println!("INFO server {:?} processing_error={:?}",
                          http_reader_writer.method, status);
-                let _ = http_reader_writer.send_without_body(status).await;
+                let _ = http_reader_writer.send_simple(status).await;
             }
             Ok(req) => {
                 println!("INFO server {:?} {:?}", req, http_reader_writer);
@@ -95,8 +107,8 @@ async fn async_main() -> () {
     });
 
     let client = reqwest::Client::new();
-    println!("INFO client doing GET");
-    let response = client.get("http://127.0.0.1:1690/path1")
+    println!("INFO client doing GET /small");
+    let response = client.get("http://127.0.0.1:1690/small")
         .send()
         .await
         .unwrap();
@@ -105,6 +117,18 @@ async fn async_main() -> () {
     let body = response.bytes().await.unwrap();
     println!("INFO client response body {:?}", body);
     assert_eq!(bytes::Bytes::from_static(b"body1"), body);
+
+    println!("INFO client doing GET /big");
+    let response = client.get("http://127.0.0.1:1690/big")
+        .send()
+        .await
+        .unwrap();
+    println!("INFO client response {:?}", response);
+    assert_eq!(200, response.status().as_u16());
+    let body = response.bytes().await.unwrap();
+    println!("INFO client response body {:?}", body);
+    let expected_body: bytes::Bytes = std::iter::repeat('A' as u8).take(1024 * 1024).collect();
+    assert_eq!(expected_body, body);
 
     println!("INFO client doing PUT");
     let response = client.put("http://127.0.0.1:1690/path2")

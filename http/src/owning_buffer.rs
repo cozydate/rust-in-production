@@ -23,6 +23,10 @@ impl OwningBuffer {
         self.write(s.as_bytes()).unwrap();
     }
 
+    pub fn try_append(&mut self, s: &str) -> Option<()> {
+        self.write(s.as_bytes()).ok().map(|_| ())
+    }
+
     pub fn writable(&mut self) -> Option<&mut [u8]> {
         if self.write_index >= self.buf.len() {
             // buf ran out of space.
@@ -54,10 +58,13 @@ impl OwningBuffer {
         }
     }
 
-    pub fn read_all(&mut self) {
+    pub fn read_all(&mut self) -> &[u8] {
+        let start = self.read_index;
+        let end = self.write_index;
         // All data has been read.  Reset the buffer.
         self.write_index = 0;
         self.read_index = 0;
+        &self.buf[start..end]
     }
 
     /// Reads from `input` into the buffer until it finds `delim`.
@@ -79,7 +86,7 @@ impl OwningBuffer {
             {
                 let result_start = self.read_index;
                 let result_end = self.read_index + delim_index;
-                self.read( delim_index + delim.len());
+                self.read(delim_index + delim.len());
                 //println!("read_delimited() rest {:?}", escape_ascii(self.readable()));
                 return Ok(&self.buf[result_start..result_end]);
             }

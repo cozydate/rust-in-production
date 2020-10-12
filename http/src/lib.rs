@@ -1,11 +1,11 @@
 use std::cmp::min;
 use std::convert::TryFrom;
-use std::fmt::Formatter;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use lazy_static::lazy_static;
 use string_wrapper::StringWrapper;
+use tokio::io::AsyncWrite;
 use tokio::prelude::AsyncRead;
 
 use crate::owning_buffer::OwningBuffer;
@@ -236,12 +236,46 @@ impl<'a> HttpRequestLine<'a> {
 
 pub struct Header<'a> {
     pub name: &'a str,
-    pub value: StringWrapper<[u8; 256]>,
+    pub value: &'a str,
 }
 
 impl<'a> Header<'a> {
-    pub fn new(name: &str) -> Header {
-        Header { name, value: StringWrapper::from_str("") }
+    pub fn new<'b>(name: &'b str, value: &'b str) -> Header<'b> {
+        Header { name, value }
+    }
+}
+
+impl<'a> std::fmt::Debug for Header<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Header{{{}:<{} bytes>}}",
+               self.name.to_ascii_lowercase(), self.value.as_bytes().len())
+    }
+}
+
+// impl<'a> std::fmt::Debug for Header<'a> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "Header{{{}:{}}}", self.name.to_ascii_lowercase(), self.value)
+//     }
+// }
+
+// impl<'a> std::fmt::Display for &[&Header<'a>] {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "[")?;
+//         for &header in self {
+//             write!(f, "{}", header)?
+//         }
+//         write!(f, "]")
+//     }
+// }
+
+pub struct HeaderReceiver<'a> {
+    pub name: &'a str,
+    pub value: StringWrapper<[u8; 256]>,
+}
+
+impl<'a> HeaderReceiver<'a> {
+    pub fn new(name: &str) -> HeaderReceiver {
+        HeaderReceiver { name, value: StringWrapper::from_str("") }
     }
 
     pub fn is_chunked(&self) -> Result<bool, HttpError> {
@@ -284,7 +318,7 @@ impl<'a> Header<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum HttpStatus {
     Continue100,
     Ok200,
@@ -296,24 +330,24 @@ pub enum HttpStatus {
     PayloadTooLarge413,
     UriTooLong414,
     RequestHeaderFieldsTooLarge431,
-    InternalServerError500,
+    InternalServerError500(String),
 }
 
 impl HttpStatus {
     pub fn as_line(&self) -> &'static str {
         match self {
-            HttpStatus::Continue100 => "HTTP/1.1 100 Continue",
-            HttpStatus::Ok200 => "HTTP/1.1 200 OK",
-            HttpStatus::Created201 => "HTTP/1.1 201 Created",
-            HttpStatus::BadRequest400 => "HTTP/1.1 400 Bad Request",
-            HttpStatus::NotFound404 => "HTTP/1.1 404 Not Found",
-            HttpStatus::MethodNotAllowed405 => "HTTP/1.1 405 Method Not Allowed",
-            HttpStatus::LengthRequired411 => "HTTP/1.1 411 Length Required",
-            HttpStatus::PayloadTooLarge413 => "HTTP/1.1 413 Payload Too Large",
-            HttpStatus::UriTooLong414 => "HTTP/1.1 414 URI Too Long",
+            HttpStatus::Continue100 => "HTTP/1.1 100 Continue\r\n",
+            HttpStatus::Ok200 => "HTTP/1.1 200 OK\r\n",
+            HttpStatus::Created201 => "HTTP/1.1 201 Created\r\n",
+            HttpStatus::BadRequest400 => "HTTP/1.1 400 Bad Request\r\n",
+            HttpStatus::NotFound404 => "HTTP/1.1 404 Not Found\r\n",
+            HttpStatus::MethodNotAllowed405 => "HTTP/1.1 405 Method Not Allowed\r\n",
+            HttpStatus::LengthRequired411 => "HTTP/1.1 411 Length Required\r\n",
+            HttpStatus::PayloadTooLarge413 => "HTTP/1.1 413 Payload Too Large\r\n",
+            HttpStatus::UriTooLong414 => "HTTP/1.1 414 URI Too Long\r\n",
             HttpStatus::RequestHeaderFieldsTooLarge431 =>
-                "HTTP/1.1 431 Request Header Fields Too Large",
-            HttpStatus::InternalServerError500 => "HTTP/1.1 500 Internal Server Error",
+                "HTTP/1.1 431 Request Header Fields Too Large\r\n",
+            HttpStatus::InternalServerError500(_) => "HTTP/1.1 500 Internal Server Error\r\n",
         }
     }
 }
@@ -328,6 +362,7 @@ pub struct HttpReaderWriter<'a> {
     chunked: bool,
     output: Pin<&'a mut (dyn tokio::io::AsyncWrite + std::marker::Send + std::marker::Unpin)>,
     status: Option<HttpStatus>,
+    unsent_body_byte_count: u64,
     bytes_written: u64,
 }
 
@@ -346,6 +381,7 @@ impl<'a> HttpReaderWriter<'a> {
             chunked: false,
             output,
             status: None,
+            unsent_body_byte_count: 0,
             bytes_written: 0,
         }
     }
@@ -361,7 +397,7 @@ impl<'a> HttpReaderWriter<'a> {
             .or(Err(HttpError::ProcessingError(HttpStatus::PayloadTooLarge413)))
     }
 
-    fn save_header_value(name: &str, value: &str, headers: &mut [&mut Header])
+    fn save_header_value(name: &str, value: &str, headers: &mut [&mut HeaderReceiver])
                          -> Result<(), HttpError> {
         // For-loops call .iter() and cannot mutate the returned reference:
         // ```
@@ -378,7 +414,7 @@ impl<'a> HttpReaderWriter<'a> {
         Ok(())
     }
 
-    pub async fn read_request<'b>(&'b mut self, extra_headers: &'b mut [&mut Header<'b>])
+    pub async fn read_request<'b>(&'b mut self, extra_headers: &'b mut [&mut HeaderReceiver<'b>])
                                   -> Result<(), HttpError> {
         // "HTTP/1.1 Message Syntax and Routing" https://tools.ietf.org/html/rfc7230
         let head = self.buffer.read_delimited(&mut self.input, b"\r\n\r\n")
@@ -392,9 +428,9 @@ impl<'a> HttpReaderWriter<'a> {
             .ok_or(HttpError::ParseError(HttpCallerError::RequestLineMissing))?;
         let request_line = HttpRequestLine::parse(line_bytes)?;
 
-        let mut content_length = Header::new("content-length");
-        let mut expect = Header::new("expect");
-        let mut transfer_encoding = Header::new("transfer-encoding");
+        let mut content_length = HeaderReceiver::new("content-length");
+        let mut expect = HeaderReceiver::new("expect");
+        let mut transfer_encoding = HeaderReceiver::new("transfer-encoding");
         for line_bytes in lines {
             println!("HttpReaderWriter::read_request header line {:?}",
                      escape_ascii(line_bytes));
@@ -435,46 +471,121 @@ impl<'a> HttpReaderWriter<'a> {
         Ok(())
     }
 
-    pub async fn send_without_body(&mut self, status: HttpStatus) -> Result<(), HttpError> {
-        let mut line: StringWrapper<[u8; 64]> = StringWrapper::from_str("");
-        line.push_str(status.as_line());
-        line.push_str("\r\n");
-        line.push_str("content-length:0\r\n");
-        line.push_str("\r\n");
-        let line_bytes = line.as_bytes();
-        tokio::io::AsyncWriteExt::write_all(&mut *self.output, line_bytes)
-            .await
-            .map_err(HttpError::from_io_err)?;
-        self.status = Some(status);
-        self.bytes_written += u64::try_from(line_bytes.len()).unwrap();
+    fn append_content_length(mut buf: &mut OwningBuffer, len: u64) -> Result<(), HttpError> {
+        buf.append("content-length:");
+        itoa::write(&mut buf, len).unwrap();  // Write num without allocating.
+        buf.append("\r\n");
         Ok(())
     }
 
-    pub async fn send_text(&mut self, status: HttpStatus, body: &str) -> Result<(), HttpError> {
-        let mut mem: [u8; 100] = [0; 100];
-        let mut buf = buffer::Buffer::new(&mut mem[..]);
+    fn reject_header(name: &str, headers: &[&Header]) -> Result<(), HttpError> {
+        for &header in headers {
+            if header.name.eq_ignore_ascii_case(name) {
+                return Err(HttpError::ProcessingError(HttpStatus::InternalServerError500(
+                    String::from(format!("invalid extra header {:?}", header)))));
+            }
+        }
+        Ok(())
+    }
+
+    fn push_header_internal(buf: &mut OwningBuffer, header: &Header) -> Option<()> {
+        buf.try_append(header.name)?;
+        buf.try_append(":")?;
+        buf.try_append(header.value)?;
+        buf.try_append("\r\n")
+    }
+
+    fn append_extra_headers(buf: &mut OwningBuffer, headers: &[&Header]) -> Result<(), HttpError> {
+        for &header in headers {
+            Self::push_header_internal(buf, header)
+                .ok_or_else(|| HttpError::ProcessingError(HttpStatus::InternalServerError500(
+                    String::from(
+                        format!("buffer full while pushing extra headers {:?}", headers)))))?;
+        }
+        Ok(())
+    }
+
+    async fn send(&mut self, data: &[u8]) -> Result<(), HttpError> {
+        println!("HttpReaderWriter::send {} bytes {:?}", data.len(), escape_ascii(data));
+        tokio::io::AsyncWriteExt::write_all(&mut *self.output, data)
+            .await
+            .map_err(HttpError::from_io_err)?;
+        self.bytes_written += u64::try_from(data.len()).unwrap();
+        Ok(())
+    }
+
+    pub async fn send_simple(&mut self, status: HttpStatus) -> Result<(), HttpError> {
+        let mut buf = owning_buffer::OwningBuffer::new();
         buf.append(status.as_line());
-        buf.append("\r\n");
-        buf.append("content-type:text/plain; charset=UTF-8\r\n");
-        buf.append("content-length:");
-        itoa::write(&mut buf, body.len()).unwrap();  // Write num without allocating.
-        buf.append("\r\n");
-        buf.append("\r\n");
-        let to_write = buf.readable();
-        tokio::io::AsyncWriteExt::write_all(&mut *self.output, to_write)
-            .await
-            .map_err(HttpError::from_io_err)?;
-        self.bytes_written += u64::try_from(to_write.len()).unwrap();
-        buf.read_all();
-
-        let body_bytes = body.as_bytes();
-        tokio::io::AsyncWriteExt::write_all(&mut self.output, body_bytes)
-            .await
-            .map_err(HttpError::from_io_err)?;
-        self.bytes_written += u64::try_from(body_bytes.len()).unwrap();
-
+        buf.append("content-length:0\r\n\r\n");
+        self.send(buf.read_all()).await?;
         self.status = Some(status);
         Ok(())
+    }
+
+    pub async fn send_without_body(&mut self, status: HttpStatus, extra_headers: &[&Header<'_>])
+                                   -> Result<(), HttpError> {
+        let mut buf = owning_buffer::OwningBuffer::new();
+        buf.append(status.as_line());
+        Self::append_content_length(&mut buf, 0)?;
+        Self::reject_header("transfer-encoding", extra_headers)?;
+        Self::reject_header("content-length", extra_headers)?;
+        Self::reject_header("content-type", extra_headers)?;
+        Self::reject_header("content-encoding", extra_headers)?;
+        Self::append_extra_headers(&mut buf, extra_headers)?;
+        buf.append("\r\n");
+        self.send(buf.read_all()).await?;
+        self.status = Some(status);
+        Ok(())
+    }
+
+    pub async fn send_text(&mut self, status: HttpStatus, extra_headers: &[&Header<'_>], body: &str)
+                           -> Result<(), HttpError> {
+        if body.len() == 0 {
+            return self.send_without_body(status, extra_headers).await;
+        }
+        let mut buf = owning_buffer::OwningBuffer::new();
+        buf.append(status.as_line());
+        buf.append("content-type:text/plain; charset=UTF-8\r\n");
+        Self::append_content_length(&mut buf, body.len() as u64)?;
+        Self::reject_header("transfer-encoding", extra_headers)?;
+        Self::reject_header("content-length", extra_headers)?;
+        Self::reject_header("content-type", extra_headers)?;
+        Self::reject_header("content-encoding", extra_headers)?;
+        Self::append_extra_headers(&mut buf, extra_headers)?;
+        buf.append("\r\n");
+        self.send(buf.read_all()).await?;
+        self.send(body.as_bytes()).await?;
+        self.status = Some(status);
+        Ok(())
+    }
+
+    pub async fn send_with_content_length(
+        &mut self, status: HttpStatus, extra_headers: &[&Header<'_>], content_length: u64)
+        -> Result<(), HttpError> {
+        let mut buf = owning_buffer::OwningBuffer::new();
+        buf.append(status.as_line());
+        if content_length > 0 {
+            Self::append_content_length(&mut buf, content_length)?;
+            self.unsent_body_byte_count = content_length;
+        }
+        Self::reject_header("transfer-encoding", extra_headers)?;
+        Self::reject_header("content-length", extra_headers)?;
+        Self::append_extra_headers(&mut buf, extra_headers)?;
+        buf.append("\r\n");
+        self.send(buf.read_all()).await?;
+        self.status = Some(status);
+        Ok(())
+    }
+
+    pub fn reset(&mut self) {
+        self.method = None;
+        self.path.truncate(0);
+        self.unsent_expect_100_bytes = &[];
+        self.content_length = 0;
+        self.chunked = false;
+        self.status = None;
+        self.bytes_written = 0;
     }
 
     fn send_expect_100_bytes(&mut self, cx: &mut Context<'_>) -> Option<Poll<tokio::io::Result<usize>>> {
@@ -493,16 +604,6 @@ impl<'a> HttpReaderWriter<'a> {
             }
         }
         None
-    }
-
-    pub fn reset(&mut self) {
-        self.method = None;
-        self.path.truncate(0);
-        self.unsent_expect_100_bytes = &[];
-        self.content_length = 0;
-        self.chunked = false;
-        self.status = None;
-        self.bytes_written = 0;
     }
 }
 
@@ -526,8 +627,40 @@ impl<'a> AsyncRead for HttpReaderWriter<'a> {
     }
 }
 
+impl<'a> AsyncWrite for HttpReaderWriter<'a> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8])
+                  -> Poll<tokio::io::Result<usize>> {
+        let mut_self = &mut self.get_mut();
+        match tokio::io::AsyncWrite::poll_write(Pin::new(&mut mut_self.output), cx, buf) {
+            Poll::Ready(Ok(bytes_written)) => {
+                let written = &buf[..bytes_written];
+                if written.len() < 50 {
+                    println!("HttpReaderWriter::poll_write wrote {} bytes {:?}",
+                             written.len(), escape_ascii(written));
+                } else {
+                    println!("HttpReaderWriter::poll_write wrote {} bytes {:?}...",
+                             written.len(), escape_ascii(&written[..50]));
+                }
+                mut_self.bytes_written += bytes_written as u64;
+                Poll::Ready(Ok(bytes_written))
+            }
+            other => other
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<tokio::io::Result<()>> {
+        println!("HttpReaderWriter::poll_flush");
+        tokio::io::AsyncWrite::poll_flush(Pin::new(&mut self.get_mut().output), cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<tokio::io::Result<()>> {
+        println!("HttpReaderWriter::poll_shutdown");
+        tokio::io::AsyncWrite::poll_shutdown(Pin::new(&mut self.get_mut().output), cx)
+    }
+}
+
 impl<'a> std::fmt::Debug for HttpReaderWriter<'a> {
-    fn fmt(&self, f: &mut Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "HttpReaderWriter{{{:?}, bytes_written={}}}", self.status, self.bytes_written)
     }
 }
