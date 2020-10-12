@@ -123,7 +123,12 @@ impl HttpCallerError {
     }
 }
 
-#[derive(Debug, PartialEq)]
+/// An upper-case string starting with an English letter
+/// and containing only English letters and digits.
+/// Length is 1-16 bytes.
+///
+/// Examples: "GET", "HEAD", "CUSTOM123"
+#[derive(Clone, Debug, PartialEq)]
 pub enum HttpMethod {
     DELETE,
     GET,
@@ -136,7 +141,6 @@ pub enum HttpMethod {
 impl HttpMethod {
     pub fn from_str(s: &str) -> Result<HttpMethod, HttpError> {
         // HTTP/1.1 Request Methods https://tools.ietf.org/html/rfc7231#section-4
-        //println!("HttpMethod::from_str {:?}", s);
         lazy_static! {
             static ref METHOD_RE: regex::Regex = regex::Regex::new("^[A-Z][A-Z0-9]*$").unwrap();
         }
@@ -154,11 +158,29 @@ impl HttpMethod {
                 .ok_or(HttpError::ParseError(HttpCallerError::MethodTooLong)),
         }
     }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            HttpMethod::DELETE => "DELETE",
+            HttpMethod::GET => "GET",
+            HttpMethod::HEAD => "HEAD",
+            HttpMethod::POST => "POST",
+            HttpMethod::PUT => "PUT",
+            HttpMethod::Other(sw) => &sw,
+        }
+    }
 }
 
+impl std::fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct HttpRequestLine<'a> {
-    pub method: &'a str,
-    pub path: &'a str,
+    method: &'a str,
+    raw_path: &'a str,
 }
 
 impl<'a> HttpRequestLine<'a> {
@@ -174,21 +196,8 @@ impl<'a> HttpRequestLine<'a> {
         let captures: regex::Captures = REQUEST_LINE_RE.captures(line)
             .ok_or(HttpError::ParseError(HttpCallerError::RequestLineInvalid))?;
         let method = captures.get(1).unwrap().as_str();
-        let path = captures.get(2).unwrap().as_str();
-        Ok(HttpRequestLine { method, path })
-    }
-
-    pub fn method(&self) -> Result<HttpMethod, HttpError> {
-        Ok(HttpMethod::from_str(&self.method)?)
-    }
-
-    pub fn path(&self) -> Result<StringWrapper<[u8; 512]>, HttpError> {
-        let cow_str = percent_encoding::percent_decode_str(self.path)
-            .decode_utf8()
-            .map_err(|_e| HttpError::ParseError(HttpCallerError::PathInvalid))?;
-        let result = StringWrapper::from_str_safe(&cow_str)
-            .ok_or(HttpError::ParseError(HttpCallerError::PathTooLong))?;
-        Ok(result)
+        let raw_path = captures.get(2).unwrap().as_str();
+        Ok(HttpRequestLine { method, raw_path })
     }
 }
 
@@ -203,28 +212,35 @@ impl<'a> Header<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for Header<'a> {
+/// Returns true if the header name matches headers that cannot carry PII:
+/// `transfer-encoding`, `content-length`, `content-type`, and `content-encoding`.
+pub fn is_non_pii_header(name: &str) -> bool {
+    name.eq_ignore_ascii_case("transfer-encoding") ||
+        name.eq_ignore_ascii_case("content-length") ||
+        name.eq_ignore_ascii_case("content-type") ||
+        name.eq_ignore_ascii_case("content-encoding")
+}
+
+impl<'a> std::fmt::Display for Header<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Header{{{}:<{} bytes>}}",
-               self.name.to_ascii_lowercase(), self.value.as_bytes().len())
+        if is_non_pii_header(self.name) {
+            write!(f, "{}:{}}}", self.name.to_ascii_lowercase(), self.value)
+        } else {
+            write!(f, "{}:<{} bytes>}}", self.name.to_ascii_lowercase(), self.value.len())
+        }
     }
 }
 
-// impl<'a> std::fmt::Debug for Header<'a> {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "Header{{{}:{}}}", self.name.to_ascii_lowercase(), self.value)
-//     }
-// }
+impl<'a> std::fmt::Debug for Header<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Header{{{}:{}}}", self.name.to_ascii_lowercase(), self.value)
+    }
+}
 
-// impl<'a> std::fmt::Display for &[&Header<'a>] {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "[")?;
-//         for &header in self {
-//             write!(f, "{}", header)?
-//         }
-//         write!(f, "]")
-//     }
-// }
+fn headers_to_string(headers: &[&Header]) -> String {
+    let header_strings: Vec<String> = headers.iter().map(|&h| h.to_string()).collect();
+    "[".to_string() + &header_strings.join(", ") + "]"
+}
 
 pub struct HeaderReceiver<'a> {
     pub name: &'a str,
@@ -276,6 +292,28 @@ impl<'a> HeaderReceiver<'a> {
     }
 }
 
+impl<'a> std::fmt::Display for HeaderReceiver<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if is_non_pii_header(self.name) {
+            write!(f, "{}:{}}}", self.name.to_ascii_lowercase(), self.value)
+        } else {
+            write!(f, "{}:<{} bytes>}}", self.name.to_ascii_lowercase(), self.value.len())
+        }
+    }
+}
+
+impl<'a> std::fmt::Debug for HeaderReceiver<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HeaderReceiver{{{}:{}}}", self.name.to_ascii_lowercase(), self.value)
+    }
+}
+
+fn header_receivers_to_string(header_receivers: &[&HeaderReceiver]) -> String {
+    let header_strings: Vec<String> =
+        header_receivers.iter().map(|&hr| hr.to_string()).collect();
+    "[".to_string() + &header_strings.join(", ") + "]"
+}
+
 #[derive(Debug, Clone)]
 pub enum HttpStatus {
     Continue100,
@@ -313,10 +351,10 @@ impl HttpStatus {
 pub struct HttpReaderWriter<'a> {
     input: Pin<&'a mut (dyn tokio::io::AsyncRead + std::marker::Send + std::marker::Unpin)>,
     buffer: OwningBuffer,
-    pub method: Option<HttpMethod>,
-    pub path: StringWrapper<[u8; 512]>,
+    method: Option<HttpMethod>,
+    pub raw_path: StringWrapper<[u8; 512]>,
     unsent_expect_100_bytes: &'static [u8],
-    pub content_length: u64,
+    content_length: u64,
     chunked: bool,
     output: Pin<&'a mut (dyn tokio::io::AsyncWrite + std::marker::Send + std::marker::Unpin)>,
     status: Option<HttpStatus>,
@@ -333,7 +371,7 @@ impl<'a> HttpReaderWriter<'a> {
             input,
             buffer: OwningBuffer::new(),
             method: None,
-            path: StringWrapper::from_str(""),
+            raw_path: StringWrapper::from_str(""),
             unsent_expect_100_bytes: &[],
             content_length: 0,
             chunked: false,
@@ -350,9 +388,22 @@ impl<'a> HttpReaderWriter<'a> {
         self.chunked || self.content_length > 0
     }
 
+    pub fn content_length(&self) -> u64 { self.content_length }
+
     pub fn content_length_usize(&self) -> Result<usize, HttpError> {
         usize::try_from(self.content_length)
             .or(Err(HttpError::ProcessingError(HttpStatus::PayloadTooLarge413)))
+    }
+
+    pub fn method(&self) -> HttpMethod { self.method.as_ref().unwrap().clone() }
+
+    pub fn decode_path(&self) -> Result<std::borrow::Cow<str>, HttpError> {
+        if self.raw_path.is_empty() {
+            panic!("HttpReaderWriter::decode_path alled before reading request");
+        }
+        Ok(percent_encoding::percent_decode_str(&self.raw_path)
+            .decode_utf8()
+            .map_err(|_e| HttpError::ParseError(HttpCallerError::PathInvalid))?)
     }
 
     fn save_header_value(name: &str, value: &str, headers: &mut [&mut HeaderReceiver])
@@ -429,24 +480,20 @@ impl<'a> HttpReaderWriter<'a> {
             Self::save_header_value(name, value, extra_headers)?;
         }
 
-        self.method = Some(request_line.method()?);
-        self.path.truncate(0);
-        self.path.push_partial_str(request_line.path)
+        self.method = Some(HttpMethod::from_str(request_line.method)?);
+        self.raw_path.truncate(0);
+        self.raw_path.push_partial_str(request_line.raw_path)
             .or(Err(HttpError::ParseError(HttpCallerError::PathTooLong)))?;
-        self.unsent_expect_100_bytes = if expect.is_100_continue()? {
-            HttpStatus::Continue100.as_line().as_bytes()
-        } else {
-            &[]
-        };
+        if expect.is_100_continue()? {
+            self.unsent_expect_100_bytes = HttpStatus::Continue100.as_line().as_bytes();
+        }
         self.content_length = content_length.parse_content_length()?;
         self.chunked = transfer_encoding.is_chunked()?;
-        self.status = None;
-        self.bytes_written = 0;
         Ok(())
     }
 
     fn append_content_length(mut buf: &mut OwningBuffer, len: u64) -> Result<(), HttpError> {
-        buf.append("content-length:");
+        buf.append("content-length: ");
         itoa::write(&mut buf, len).unwrap();  // Write num without allocating.
         buf.append("\r\n");
         Ok(())
@@ -464,7 +511,7 @@ impl<'a> HttpReaderWriter<'a> {
 
     fn push_header_internal(buf: &mut OwningBuffer, header: &Header) -> Option<()> {
         buf.try_append(header.name)?;
-        buf.try_append(":")?;
+        buf.try_append(": ")?;
         buf.try_append(header.value)?;
         buf.try_append("\r\n")
     }
@@ -473,8 +520,8 @@ impl<'a> HttpReaderWriter<'a> {
         for &header in headers {
             Self::push_header_internal(buf, header)
                 .ok_or_else(|| HttpError::ProcessingError(HttpStatus::InternalServerError500(
-                    String::from(
-                        format!("buffer full while pushing extra headers {:?}", headers)))))?;
+                    String::from("buffer full while pushing extra headers ".to_string() +
+                        &headers_to_string(headers)))))?;
         }
         Ok(())
     }
@@ -522,7 +569,7 @@ impl<'a> HttpReaderWriter<'a> {
         }
         let mut buf = owning_buffer::OwningBuffer::new();
         buf.append(status.as_line());
-        buf.append("content-type:text/plain; charset=UTF-8\r\n");
+        buf.append("content-type: text/plain; charset=UTF-8\r\n");
         Self::append_content_length(&mut buf, body.len() as u64)?;
         Self::reject_header("transfer-encoding", extra_headers)?;
         Self::reject_header("content-length", extra_headers)?;
@@ -554,17 +601,8 @@ impl<'a> HttpReaderWriter<'a> {
         Ok(())
     }
 
-    pub fn reset(&mut self) {
-        self.method = None;
-        self.path.truncate(0);
-        self.unsent_expect_100_bytes = &[];
-        self.content_length = 0;
-        self.chunked = false;
-        self.status = None;
-        self.bytes_written = 0;
-    }
-
     fn send_expect_100_bytes(&mut self, cx: &mut Context<'_>) -> Option<Poll<tokio::io::Result<usize>>> {
+        // TODO(mleonhard) Try to merge this back into HttpReaderWriter::poll_read.  Use mut_self.
         while !self.unsent_expect_100_bytes.is_empty() {
             match tokio::io::AsyncWrite::poll_write(
                 self.output.as_mut(), cx, self.unsent_expect_100_bytes) {

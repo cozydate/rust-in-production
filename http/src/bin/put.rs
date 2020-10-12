@@ -11,7 +11,7 @@ use beatrice_http::{
 };
 
 async fn handle_get(mut http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
-    if *http_reader_writer.path == *"/big" {
+    if *http_reader_writer.raw_path == *"/big" {
         let size = 1024 * 1024;
         http_reader_writer.send_with_content_length(HttpStatus::Ok200, &[], size)
             .await?;
@@ -29,10 +29,10 @@ async fn handle_get(mut http_reader_writer: &mut HttpReaderWriter<'_>) -> Result
 async fn handle_put(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError>
 {
     let body_len = http_reader_writer.content_length_usize()?;
-    if http_reader_writer.content_length < 1 {
+    if http_reader_writer.content_length() < 1 {
         return http_reader_writer.send_simple(HttpStatus::LengthRequired411).await;
     }
-    if http_reader_writer.content_length > 4 * 1024 {
+    if http_reader_writer.content_length() > 4 * 1024 {
         return http_reader_writer.send_simple(HttpStatus::PayloadTooLarge413).await;
     }
     let mut body_mem: [u8; 4 * 1024] = [0; 4 * 1024];
@@ -44,13 +44,14 @@ async fn handle_put(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(),
     http_reader_writer.send_simple(HttpStatus::Created201).await
 }
 
-async fn handle_request(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
+async fn read_and_handle_request(http_reader_writer: &mut HttpReaderWriter<'_>) -> Result<(), HttpError> {
     http_reader_writer.read_request(&mut []).await?;
-    match http_reader_writer.method {
-        Some(HttpMethod::GET) => {
+    let method = http_reader_writer.method();
+    match method {
+        HttpMethod::GET => {
             handle_get(http_reader_writer).await
         }
-        Some(HttpMethod::PUT) => {
+        HttpMethod::PUT => {
             handle_put(http_reader_writer).await
         }
         _ => {
@@ -64,8 +65,7 @@ async fn handle_connection(tcp_stream: &mut tokio::net::TcpStream) {
     let mut http_reader_writer =
         HttpReaderWriter::new(Pin::new(&mut tcp_reader), Pin::new(&mut tcp_writer));
     loop {
-        http_reader_writer.reset();
-        match handle_request(&mut http_reader_writer).await {
+        match read_and_handle_request(&mut http_reader_writer).await {
             Err(HttpError::IoError(e)) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     println!("INFO server client disconnected");
@@ -81,7 +81,7 @@ async fn handle_connection(tcp_stream: &mut tokio::net::TcpStream) {
             }
             Err(HttpError::ProcessingError(status)) => {
                 println!("INFO server {:?} processing_error={:?}",
-                         http_reader_writer.method, status);
+                         http_reader_writer.method(), status);
                 let _ = http_reader_writer.send_simple(status).await;
             }
             Ok(req) => {
@@ -126,7 +126,7 @@ async fn async_main() -> () {
     println!("INFO client response {:?}", response);
     assert_eq!(200, response.status().as_u16());
     let body = response.bytes().await.unwrap();
-    println!("INFO client response body {:?}", body);
+    println!("INFO client response body {} bytes", body.len());
     let expected_body: bytes::Bytes = std::iter::repeat('A' as u8).take(1024 * 1024).collect();
     assert_eq!(expected_body, body);
 
