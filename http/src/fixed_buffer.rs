@@ -1,10 +1,10 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-/// The number of bytes that can be stored in an OwningBuffer.
+/// The number of bytes that can be stored in an FixedBuf.
 pub const BUFFER_LEN: usize = 4 * 1024;
 
-/// OwningBuffer is a byte buffer that holds a few KB.
+/// FixedBuf is a byte buffer that holds a few KB.
 /// You can write bytes to it and then read them back.
 ///
 /// It supports tokio's AsyncRead and AsyncWrite.
@@ -19,18 +19,18 @@ pub const BUFFER_LEN: usize = 4 * 1024;
 ///
 /// It is not a circular buffer.  You can call `shift()` periodically to
 /// move unread bytes to the front of the buffer.
-pub struct OwningBuffer {
+pub struct FixedBuf {
     buf: [u8; BUFFER_LEN],
     write_index: usize,
     read_index: usize,
 }
 
-impl OwningBuffer {
+impl FixedBuf {
     /// Makes a new buffer with a few KB of internal memory.
     ///
     /// Allocates on the stack by default.  Put it in a `Box` to use the heap.
-    pub fn new() -> OwningBuffer {
-        OwningBuffer {
+    pub fn new() -> FixedBuf {
+        FixedBuf {
             buf: [0; BUFFER_LEN],
             write_index: 0,
             read_index: 0,
@@ -174,7 +174,7 @@ impl OwningBuffer {
     }
 }
 
-impl std::io::Write for OwningBuffer {
+impl std::io::Write for FixedBuf {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         let writable = self.writable().ok_or(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -197,7 +197,7 @@ impl std::io::Write for OwningBuffer {
     }
 }
 
-impl std::io::Read for OwningBuffer {
+impl std::io::Read for FixedBuf {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let readable = self.readable();
         let len = core::cmp::min(buf.len(), readable.len());
@@ -212,7 +212,7 @@ impl std::io::Read for OwningBuffer {
     }
 }
 
-impl tokio::io::AsyncWrite for OwningBuffer {
+impl tokio::io::AsyncWrite for FixedBuf {
     fn poll_write(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -233,7 +233,7 @@ impl tokio::io::AsyncWrite for OwningBuffer {
     }
 }
 
-impl tokio::io::AsyncRead for OwningBuffer {
+impl tokio::io::AsyncRead for FixedBuf {
     fn poll_read(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         assert_eq!("", crate::escape_ascii(buf.readable()));
         assert_eq!("", crate::escape_ascii(buf.read_all()));
         buf.shift();
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_append() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.append("abc");
         assert_eq!("abc", crate::escape_ascii(buf.readable()));
         buf.append("def");
@@ -270,13 +270,13 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_append_buffer_full() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.append(&"c".repeat(BUFFER_LEN + 1));
     }
 
     #[test]
     fn test_try_append() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.try_append("a").unwrap();
         buf.append("b");
         assert_eq!("ab", crate::escape_ascii(buf.readable()));
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_writable_and_wrote() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         assert_eq!(BUFFER_LEN, buf.writable().unwrap().len());
         buf.writable().unwrap()[0] = 'a' as u8;
         buf.wrote(1);
@@ -311,13 +311,13 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_wrote_too_much() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.wrote(BUFFER_LEN + 1);
     }
 
     #[test]
     fn test_readable_and_read() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         assert_eq!("", crate::escape_ascii(buf.readable()));
         buf.append("abc");
         assert_eq!("abc", crate::escape_ascii(buf.readable()));
@@ -334,14 +334,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_read_too_much() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.append("a");
         buf.read(2);
     }
 
     #[test]
     fn test_read_all() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         assert_eq!("", crate::escape_ascii(buf.read_all()));
         buf.append("abc");
         assert_eq!("abc", crate::escape_ascii(buf.read_all()));
@@ -352,7 +352,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_empty() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut input = tokio::io::stream_reader(tokio::stream::empty::<std::io::Result<&[u8]>>());
         assert_eq!(
             std::io::ErrorKind::NotFound,
@@ -365,7 +365,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_not_found_eof() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
         assert_eq!(
             std::io::ErrorKind::NotFound,
@@ -379,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_not_found_buffer_almost_full() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let many_bs = "b".repeat(BUFFER_LEN - 1);
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
         assert_eq!(
@@ -393,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_not_found_buffer_full() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let many_bs = "b".repeat(BUFFER_LEN);
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
         assert_eq!(
@@ -407,7 +407,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_found() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
         assert_eq!(
             "ab",
@@ -417,7 +417,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_found_with_leftover() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut input =
             tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abcdef".as_bytes())]));
         assert_eq!(
@@ -441,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_delimited_already_in_buffer() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         buf.append("abc");
         let mut input = AsyncReadableThatPanics {};
         assert_eq!(
@@ -462,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_std_io_write() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         std::io::Write::write(&mut buf, b"abc").unwrap();
         assert_eq!("abc", crate::escape_ascii(buf.readable()));
         std::io::Write::write(&mut buf, b"def").unwrap();
@@ -480,7 +480,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_write() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         tokio::io::AsyncWriteExt::write_all(&mut buf, b"abc")
             .await
             .unwrap();
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_std_io_read() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut data: [u8; BUFFER_LEN] = ['.' as u8; BUFFER_LEN];
         assert_eq!(0, std::io::Read::read(&mut buf, &mut data).unwrap());
         assert_eq!("..........", crate::escape_ascii(&data[..10]));
@@ -531,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_async_read() {
-        let mut buf = OwningBuffer::new();
+        let mut buf = FixedBuf::new();
         let mut data: [u8; BUFFER_LEN] = ['.' as u8; BUFFER_LEN];
         assert_eq!(
             0,
