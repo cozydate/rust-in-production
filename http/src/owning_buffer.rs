@@ -1,6 +1,9 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+/// The number of bytes that can be stored in an OwningBuffer.
+pub const BUFFER_LEN: usize = 4 * 1024;
+
 /// OwningBuffer is a byte buffer that holds a few KB.
 /// You can write bytes to it and then read them back.
 ///
@@ -17,7 +20,7 @@ use core::task::{Context, Poll};
 /// It is not a circular buffer.  You can call `shift()` periodically to
 /// move unread bytes to the front of the buffer.
 pub struct OwningBuffer {
-    buf: [u8; 4 * 1024],
+    buf: [u8; BUFFER_LEN],
     write_index: usize,
     read_index: usize,
 }
@@ -28,7 +31,7 @@ impl OwningBuffer {
     /// Allocates on the stack by default.  Put it in a `Box` to use the heap.
     pub fn new() -> OwningBuffer {
         OwningBuffer {
-            buf: [0; 4 * 1024],
+            buf: [0; BUFFER_LEN],
             write_index: 0,
             read_index: 0,
         }
@@ -261,14 +264,14 @@ mod tests {
         assert_eq!("abc", crate::escape_ascii(buf.readable()));
         buf.append("def");
         assert_eq!("abcdef", crate::escape_ascii(buf.readable()));
-        buf.append(&"g".repeat(4 * 1024 - 6));
+        buf.append(&"g".repeat(BUFFER_LEN - 6));
     }
 
     #[test]
     #[should_panic]
     fn test_append_buffer_full() {
         let mut buf = OwningBuffer::new();
-        buf.append(&"c".repeat(4 * 1024 + 1));
+        buf.append(&"c".repeat(BUFFER_LEN + 1));
     }
 
     #[test]
@@ -277,7 +280,7 @@ mod tests {
         buf.try_append("a").unwrap();
         buf.append("b");
         assert_eq!("ab", crate::escape_ascii(buf.readable()));
-        let many_cs = "c".repeat(4 * 1024 - 3);
+        let many_cs = "c".repeat(BUFFER_LEN - 3);
         buf.try_append(&many_cs).unwrap();
         buf.try_append("d").unwrap();
         assert_eq!(
@@ -290,11 +293,11 @@ mod tests {
     #[test]
     fn test_writable_and_wrote() {
         let mut buf = OwningBuffer::new();
-        assert_eq!(4 * 1024 as usize, buf.writable().unwrap().len());
+        assert_eq!(BUFFER_LEN, buf.writable().unwrap().len());
         buf.writable().unwrap()[0] = 'a' as u8;
         buf.wrote(1);
         assert_eq!("a", crate::escape_ascii(buf.readable()));
-        let many_bs = "b".repeat(4 * 1024 - 1);
+        let many_bs = "b".repeat(BUFFER_LEN - 1);
         assert_eq!(many_bs.len(), buf.writable().unwrap().len());
         buf.writable().unwrap().copy_from_slice(many_bs.as_bytes());
         buf.wrote(many_bs.len());
@@ -309,7 +312,7 @@ mod tests {
     #[should_panic]
     fn test_wrote_too_much() {
         let mut buf = OwningBuffer::new();
-        buf.wrote(4 * 1024 + 1);
+        buf.wrote(BUFFER_LEN + 1);
     }
 
     #[test]
@@ -377,7 +380,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_delimited_not_found_buffer_almost_full() {
         let mut buf = OwningBuffer::new();
-        let many_bs = "b".repeat(4 * 1024 - 1);
+        let many_bs = "b".repeat(BUFFER_LEN - 1);
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
         assert_eq!(
             std::io::ErrorKind::NotFound,
@@ -391,7 +394,7 @@ mod tests {
     #[tokio::test]
     async fn test_read_delimited_not_found_buffer_full() {
         let mut buf = OwningBuffer::new();
-        let many_bs = "b".repeat(4 * 1024);
+        let many_bs = "b".repeat(BUFFER_LEN);
         let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
         assert_eq!(
             std::io::ErrorKind::InvalidData,
@@ -467,7 +470,7 @@ mod tests {
         buf.read(1);
         std::io::Write::write(&mut buf, b"g").unwrap();
         assert_eq!("bcdefg", crate::escape_ascii(buf.readable()));
-        std::io::Write::write(&mut buf, "h".repeat(4 * 1024 - 8).as_bytes()).unwrap();
+        std::io::Write::write(&mut buf, "h".repeat(BUFFER_LEN - 8).as_bytes()).unwrap();
         std::io::Write::write(&mut buf, b"i").unwrap();
         assert_eq!(
             std::io::ErrorKind::InvalidData,
@@ -491,7 +494,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!("bcdefg", crate::escape_ascii(buf.readable()));
-        tokio::io::AsyncWriteExt::write_all(&mut buf, "h".repeat(4 * 1024 - 8).as_bytes())
+        tokio::io::AsyncWriteExt::write_all(&mut buf, "h".repeat(BUFFER_LEN - 8).as_bytes())
             .await
             .unwrap();
         tokio::io::AsyncWriteExt::write_all(&mut buf, b"i")
@@ -509,16 +512,19 @@ mod tests {
     #[test]
     fn test_std_io_read() {
         let mut buf = OwningBuffer::new();
-        let mut data: [u8; 4 * 1024] = ['.' as u8; 4 * 1024];
+        let mut data: [u8; BUFFER_LEN] = ['.' as u8; BUFFER_LEN];
         assert_eq!(0, std::io::Read::read(&mut buf, &mut data).unwrap());
         assert_eq!("..........", crate::escape_ascii(&data[..10]));
         buf.append("abc");
         assert_eq!(3, std::io::Read::read(&mut buf, &mut data).unwrap());
         assert_eq!("abc.......", crate::escape_ascii(&data[..10]));
         assert_eq!(0, std::io::Read::read(&mut buf, &mut data).unwrap());
-        let many_bs = "b".repeat(4 * 1024);
+        let many_bs = "b".repeat(BUFFER_LEN);
         buf.append(&many_bs);
-        assert_eq!(4 * 1024, std::io::Read::read(&mut buf, &mut data).unwrap());
+        assert_eq!(
+            BUFFER_LEN,
+            std::io::Read::read(&mut buf, &mut data).unwrap()
+        );
         assert_eq!(many_bs, crate::escape_ascii(&data[..]));
         assert_eq!(0, std::io::Read::read(&mut buf, &mut data).unwrap());
     }
@@ -526,7 +532,7 @@ mod tests {
     #[tokio::test]
     async fn test_async_read() {
         let mut buf = OwningBuffer::new();
-        let mut data: [u8; 4 * 1024] = ['.' as u8; 4 * 1024];
+        let mut data: [u8; BUFFER_LEN] = ['.' as u8; BUFFER_LEN];
         assert_eq!(
             0,
             tokio::io::AsyncReadExt::read(&mut buf, &mut data)
@@ -548,10 +554,10 @@ mod tests {
                 .await
                 .unwrap()
         );
-        let many_bs = "b".repeat(4 * 1024);
+        let many_bs = "b".repeat(BUFFER_LEN);
         buf.append(&many_bs);
         assert_eq!(
-            4 * 1024,
+            BUFFER_LEN,
             tokio::io::AsyncReadExt::read(&mut buf, &mut data)
                 .await
                 .unwrap()
