@@ -1,9 +1,6 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures::io::Error;
-use tokio::io::{AsyncRead, AsyncWrite};
-
 /// OwningBuffer is a byte buffer that holds a few KB.
 /// You can write bytes to it and then read them back.
 ///
@@ -117,7 +114,7 @@ impl OwningBuffer {
     /// See `shift()`.
     pub async fn read_delimited<'b, T>(&'b mut self, input: &'b mut T, delim: &[u8])
                                        -> std::io::Result<&'b [u8]>
-        where T: AsyncRead + std::marker::Unpin {
+        where T: tokio::io::AsyncRead + std::marker::Unpin {
         loop {
             if let Some(delim_index) = self.readable()
                 .windows(delim.len())
@@ -197,24 +194,26 @@ impl std::io::Read for OwningBuffer {
     }
 }
 
-impl AsyncWrite for OwningBuffer {
+impl tokio::io::AsyncWrite for OwningBuffer {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8])
-                  -> Poll<Result<usize, Error>> {
+                  -> Poll<Result<usize, std::io::Error>> {
         Poll::Ready(std::io::Write::write(self.get_mut(), buf))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>)
+        -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>)
+        -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 }
 
-impl AsyncRead for OwningBuffer {
+impl tokio::io::AsyncRead for OwningBuffer {
     fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &mut [u8])
-                 -> Poll<Result<usize, Error>> {
+                 -> Poll<Result<usize, std::io::Error>> {
         Poll::Ready(std::io::Read::read(self.get_mut(), buf))
     }
 }
@@ -383,9 +382,9 @@ mod tests {
 
     struct AsyncReadableThatPanics;
 
-    impl AsyncRead for AsyncReadableThatPanics {
+    impl tokio::io::AsyncRead for AsyncReadableThatPanics {
         fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, mut _buf: &mut [u8])
-                     -> Poll<Result<usize, Error>> {
+                     -> Poll<Result<usize, std::io::Error>> {
             panic!("AsyncReadableThatPanics::poll_read called");
         }
     }
