@@ -112,11 +112,17 @@ impl OwningBuffer {
     ///
     /// Returns Err(InvalidData) if the end of the buffer fills up before `delim` is found.
     /// See `shift()`.
-    pub async fn read_delimited<'b, T>(&'b mut self, input: &'b mut T, delim: &[u8])
-                                       -> std::io::Result<&'b [u8]>
-        where T: tokio::io::AsyncRead + std::marker::Unpin {
+    pub async fn read_delimited<'b, T>(
+        &'b mut self,
+        input: &'b mut T,
+        delim: &[u8],
+    ) -> std::io::Result<&'b [u8]>
+    where
+        T: tokio::io::AsyncRead + std::marker::Unpin,
+    {
         loop {
-            if let Some(delim_index) = self.readable()
+            if let Some(delim_index) = self
+                .readable()
                 .windows(delim.len())
                 .enumerate()
                 .filter(|(_index, window)| *window == delim)
@@ -128,18 +134,22 @@ impl OwningBuffer {
                 self.read(delim_index + delim.len());
                 return Ok(&self.buf[result_start..result_end]);
             }
-            let writable = self.writable()
-                .ok_or(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData, "end of buffer full"))?;
-            let num_bytes_read =
-                tokio::io::AsyncReadExt::read(input, writable).await?;
+            let writable = self.writable().ok_or(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "end of buffer full",
+            ))?;
+            let num_bytes_read = tokio::io::AsyncReadExt::read(input, writable).await?;
             if num_bytes_read == 0 {
                 if self.read_index == 0 {
                     return Err(std::io::Error::new(
-                        std::io::ErrorKind::NotFound, "eof with no data read"));
+                        std::io::ErrorKind::NotFound,
+                        "eof with no data read",
+                    ));
                 }
                 return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof, "eof before delim read"));
+                    std::io::ErrorKind::UnexpectedEof,
+                    "eof before delim read",
+                ));
             }
             self.wrote(num_bytes_read);
         }
@@ -163,12 +173,15 @@ impl OwningBuffer {
 
 impl std::io::Write for OwningBuffer {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        let writable = self.writable()
-            .ok_or(std::io::Error::new(
-                std::io::ErrorKind::InvalidData, "end of buffer full"))?;
+        let writable = self.writable().ok_or(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "end of buffer full",
+        ))?;
         if writable.len() < data.len() {
             return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData, "Not enough free space in buffer"));
+                std::io::ErrorKind::InvalidData,
+                "Not enough free space in buffer",
+            ));
         }
         let dest = &mut writable[..data.len()];
         dest.copy_from_slice(data);
@@ -176,7 +189,9 @@ impl std::io::Write for OwningBuffer {
         Ok(data.len())
     }
 
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl std::io::Read for OwningBuffer {
@@ -195,29 +210,35 @@ impl std::io::Read for OwningBuffer {
 }
 
 impl tokio::io::AsyncWrite for OwningBuffer {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8])
-                  -> Poll<Result<usize, std::io::Error>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
         Poll::Ready(std::io::Write::write(self.get_mut(), buf))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>)
-        -> Poll<Result<(), std::io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>)
-        -> Poll<Result<(), std::io::Error>> {
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 }
 
 impl tokio::io::AsyncRead for OwningBuffer {
-    fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &mut [u8])
-                 -> Poll<Result<usize, std::io::Error>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
         Poll::Ready(std::io::Read::read(self.get_mut(), buf))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -259,7 +280,10 @@ mod tests {
         let many_cs = "c".repeat(4 * 1024 - 3);
         buf.try_append(&many_cs).unwrap();
         buf.try_append("d").unwrap();
-        assert_eq!("ab".to_string() + &many_cs + "d", crate::escape_ascii(buf.readable()));
+        assert_eq!(
+            "ab".to_string() + &many_cs + "d",
+            crate::escape_ascii(buf.readable())
+        );
         assert_eq!(None, buf.try_append("e"));
     }
 
@@ -274,7 +298,10 @@ mod tests {
         assert_eq!(many_bs.len(), buf.writable().unwrap().len());
         buf.writable().unwrap().copy_from_slice(many_bs.as_bytes());
         buf.wrote(many_bs.len());
-        assert_eq!("a".to_string() + &many_bs, crate::escape_ascii(buf.readable()));
+        assert_eq!(
+            "a".to_string() + &many_bs,
+            crate::escape_ascii(buf.readable())
+        );
         assert_eq!(None, buf.writable());
     }
 
@@ -323,19 +350,27 @@ mod tests {
     #[tokio::test]
     async fn test_read_delimited_empty() {
         let mut buf = OwningBuffer::new();
-        let mut input =
-            tokio::io::stream_reader(tokio::stream::empty::<std::io::Result<&[u8]>>());
-        assert_eq!(std::io::ErrorKind::NotFound,
-                   buf.read_delimited(&mut input, b"b").await.unwrap_err().kind());
+        let mut input = tokio::io::stream_reader(tokio::stream::empty::<std::io::Result<&[u8]>>());
+        assert_eq!(
+            std::io::ErrorKind::NotFound,
+            buf.read_delimited(&mut input, b"b")
+                .await
+                .unwrap_err()
+                .kind()
+        );
     }
 
     #[tokio::test]
     async fn test_read_delimited_not_found_eof() {
         let mut buf = OwningBuffer::new();
-        let mut input =
-            tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
-        assert_eq!(std::io::ErrorKind::NotFound,
-                   buf.read_delimited(&mut input, b"d").await.unwrap_err().kind());
+        let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
+        assert_eq!(
+            std::io::ErrorKind::NotFound,
+            buf.read_delimited(&mut input, b"d")
+                .await
+                .unwrap_err()
+                .kind()
+        );
         buf.read_all();
     }
 
@@ -343,30 +378,38 @@ mod tests {
     async fn test_read_delimited_not_found_buffer_almost_full() {
         let mut buf = OwningBuffer::new();
         let many_bs = "b".repeat(4 * 1024 - 1);
-        let mut input =
-            tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
-        assert_eq!(std::io::ErrorKind::NotFound,
-                   buf.read_delimited(&mut input, b"d").await.unwrap_err().kind());
+        let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
+        assert_eq!(
+            std::io::ErrorKind::NotFound,
+            buf.read_delimited(&mut input, b"d")
+                .await
+                .unwrap_err()
+                .kind()
+        );
     }
 
     #[tokio::test]
     async fn test_read_delimited_not_found_buffer_full() {
         let mut buf = OwningBuffer::new();
         let many_bs = "b".repeat(4 * 1024);
-        let mut input =
-            tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
-        assert_eq!(std::io::ErrorKind::InvalidData,
-                   buf.read_delimited(&mut input, b"d").await.unwrap_err().kind());
+        let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok(many_bs.as_bytes())]));
+        assert_eq!(
+            std::io::ErrorKind::InvalidData,
+            buf.read_delimited(&mut input, b"d")
+                .await
+                .unwrap_err()
+                .kind()
+        );
     }
 
     #[tokio::test]
     async fn test_read_delimited_found() {
         let mut buf = OwningBuffer::new();
-        let mut input =
-            tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
+        let mut input = tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abc".as_bytes())]));
         assert_eq!(
             "ab",
-            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap()));
+            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap())
+        );
     }
 
     #[tokio::test]
@@ -376,15 +419,19 @@ mod tests {
             tokio::io::stream_reader(tokio::stream::iter(vec![Ok("abcdef".as_bytes())]));
         assert_eq!(
             "ab",
-            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap()));
+            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap())
+        );
         assert_eq!("def", crate::escape_ascii(buf.read_all()));
     }
 
     struct AsyncReadableThatPanics;
 
     impl tokio::io::AsyncRead for AsyncReadableThatPanics {
-        fn poll_read(self: Pin<&mut Self>, _cx: &mut Context<'_>, mut _buf: &mut [u8])
-                     -> Poll<Result<usize, std::io::Error>> {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            mut _buf: &mut [u8],
+        ) -> Poll<Result<usize, std::io::Error>> {
             panic!("AsyncReadableThatPanics::poll_read called");
         }
     }
@@ -396,15 +443,18 @@ mod tests {
         let mut input = AsyncReadableThatPanics {};
         assert_eq!(
             "ab",
-            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap()));
+            crate::escape_ascii(buf.read_delimited(&mut input, b"c").await.unwrap())
+        );
 
         buf.append("aaxbbx");
         assert_eq!(
             "aa",
-            crate::escape_ascii(buf.read_delimited(&mut input, b"x").await.unwrap()));
+            crate::escape_ascii(buf.read_delimited(&mut input, b"x").await.unwrap())
+        );
         assert_eq!(
             "bb",
-            crate::escape_ascii(buf.read_delimited(&mut input, b"x").await.unwrap()));
+            crate::escape_ascii(buf.read_delimited(&mut input, b"x").await.unwrap())
+        );
     }
 
     #[test]
@@ -417,34 +467,43 @@ mod tests {
         buf.read(1);
         std::io::Write::write(&mut buf, b"g").unwrap();
         assert_eq!("bcdefg", crate::escape_ascii(buf.readable()));
-        std::io::Write::write(&mut buf,
-                              "h".repeat(4 * 1024 - 8).as_bytes()).unwrap();
+        std::io::Write::write(&mut buf, "h".repeat(4 * 1024 - 8).as_bytes()).unwrap();
         std::io::Write::write(&mut buf, b"i").unwrap();
-        assert_eq!(std::io::ErrorKind::InvalidData,
-                   std::io::Write::write(&mut buf, b"def")
-                       .unwrap_err()
-                       .kind());
+        assert_eq!(
+            std::io::ErrorKind::InvalidData,
+            std::io::Write::write(&mut buf, b"def").unwrap_err().kind()
+        );
     }
 
     #[tokio::test]
     async fn test_async_write() {
         let mut buf = OwningBuffer::new();
-        tokio::io::AsyncWriteExt::write_all(&mut buf, b"abc").await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut buf, b"abc")
+            .await
+            .unwrap();
         assert_eq!("abc", crate::escape_ascii(buf.readable()));
-        tokio::io::AsyncWriteExt::write_all(&mut buf, b"def").await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut buf, b"def")
+            .await
+            .unwrap();
         assert_eq!("abcdef", crate::escape_ascii(buf.readable()));
         buf.read(1);
-        tokio::io::AsyncWriteExt::write_all(&mut buf, b"g").await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut buf, b"g")
+            .await
+            .unwrap();
         assert_eq!("bcdefg", crate::escape_ascii(buf.readable()));
-        tokio::io::AsyncWriteExt::write_all(
-            &mut buf,
-            "h".repeat(4 * 1024 - 8).as_bytes()).await.unwrap();
-        tokio::io::AsyncWriteExt::write_all(&mut buf, b"i").await.unwrap();
-        assert_eq!(std::io::ErrorKind::InvalidData,
-                   tokio::io::AsyncWriteExt::write_all(&mut buf, b"def")
-                       .await
-                       .unwrap_err()
-                       .kind());
+        tokio::io::AsyncWriteExt::write_all(&mut buf, "h".repeat(4 * 1024 - 8).as_bytes())
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut buf, b"i")
+            .await
+            .unwrap();
+        assert_eq!(
+            std::io::ErrorKind::InvalidData,
+            tokio::io::AsyncWriteExt::write_all(&mut buf, b"def")
+                .await
+                .unwrap_err()
+                .kind()
+        );
     }
 
     #[test]
@@ -469,20 +528,40 @@ mod tests {
         let mut buf = OwningBuffer::new();
         let mut data: [u8; 4 * 1024] = ['.' as u8; 4 * 1024];
         assert_eq!(
-            0, tokio::io::AsyncReadExt::read(&mut buf, &mut data).await.unwrap());
+            0,
+            tokio::io::AsyncReadExt::read(&mut buf, &mut data)
+                .await
+                .unwrap()
+        );
         assert_eq!("..........", crate::escape_ascii(&data[..10]));
         buf.append("abc");
         assert_eq!(
-            3, tokio::io::AsyncReadExt::read(&mut buf, &mut data).await.unwrap());
+            3,
+            tokio::io::AsyncReadExt::read(&mut buf, &mut data)
+                .await
+                .unwrap()
+        );
         assert_eq!("abc.......", crate::escape_ascii(&data[..10]));
         assert_eq!(
-            0, tokio::io::AsyncReadExt::read(&mut buf, &mut data).await.unwrap());
+            0,
+            tokio::io::AsyncReadExt::read(&mut buf, &mut data)
+                .await
+                .unwrap()
+        );
         let many_bs = "b".repeat(4 * 1024);
         buf.append(&many_bs);
-        assert_eq!(4 * 1024,
-                   tokio::io::AsyncReadExt::read(&mut buf, &mut data).await.unwrap());
+        assert_eq!(
+            4 * 1024,
+            tokio::io::AsyncReadExt::read(&mut buf, &mut data)
+                .await
+                .unwrap()
+        );
         assert_eq!(many_bs, crate::escape_ascii(&data[..]));
         assert_eq!(
-            0, tokio::io::AsyncReadExt::read(&mut buf, &mut data).await.unwrap());
+            0,
+            tokio::io::AsyncReadExt::read(&mut buf, &mut data)
+                .await
+                .unwrap()
+        );
     }
 }
