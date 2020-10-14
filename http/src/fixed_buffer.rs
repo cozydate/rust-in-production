@@ -127,6 +127,9 @@ impl FixedBuf {
     /// If the buffer already contains `delim`,
     /// returns the data immediately without reading from `input`.
     ///
+    /// If the buffer does not already contain `delim`, calls `shift()` before
+    /// reading from `input`.
+    ///
     /// Returns Err(InvalidData) if the end of the buffer fills up before `delim` is found.
     /// See `shift()`.
     pub async fn read_delimited<'b, T>(
@@ -151,6 +154,7 @@ impl FixedBuf {
                 self.consume(delim_index + delim.len());
                 return Ok(&self.buf[result_start..result_end]);
             }
+            self.shift();
             let writable = self.writable().ok_or(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "end of buffer full",
