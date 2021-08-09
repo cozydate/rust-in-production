@@ -1,28 +1,28 @@
 // This program shows how to handle HTTP 1.1 requests.
 use std::println;
 
-use beatrice_http::{Http11Method, Http11Request, Http11ResponseWriter, Http11Status, read_http11_request};
+use beatrice_http::{HttpMethod, HttpRequest, HttpResponseWriter, HttpStatus, read_http_request};
 use beatrice_http::buffer::Buffer;
 
-async fn handle_get<'a, T>(_req: &Http11Request, resp: &mut Http11ResponseWriter<'a, T>)
+async fn handle_get<'a, T>(_req: &HttpRequest, resp: &mut HttpResponseWriter<'a, T>)
                            -> std::io::Result<()>
     where T: tokio::io::AsyncWrite + std::marker::Unpin
 {
-    resp.send_text(Http11Status::Ok200, "body1").await
+    resp.send_text(HttpStatus::Ok200, "body1").await
 }
 
 async fn handle_connection<'a>(tcp_stream: &'a mut tokio::net::TcpStream) -> std::io::Result<()> {
     let (mut tcp_reader, mut tcp_writer) = tcp_stream.split();
     let mut mem: [u8; 4 * 1024] = [0; 4 * 1024];
     let mut buffer = Buffer::new(&mut mem[..]);
-    let req = read_http11_request(&mut tcp_reader, &mut buffer).await?;
-    let mut resp = Http11ResponseWriter::new(&mut tcp_writer);
+    let req = read_http_request(&mut tcp_reader, &mut buffer).await?;
+    let mut resp = HttpResponseWriter::new(&mut tcp_writer);
     let result = match req.method {
-        Http11Method::GET => {
+        HttpMethod::GET => {
             handle_get(&req, &mut resp).await
         }
         _ => {
-            resp.send_without_body(Http11Status::MethodNotAllowed405).await
+            resp.send_without_body(HttpStatus::MethodNotAllowed405).await
         }
     };
     match &result {
@@ -31,7 +31,7 @@ async fn handle_connection<'a>(tcp_stream: &'a mut tokio::net::TcpStream) -> std
         }
         Err(e) => {
             println!("INFO server {:?} err={}", req, e);
-            let _ = resp.send_without_body(Http11Status::InternalServerError500).await;
+            let _ = resp.send_without_body(HttpStatus::InternalServerError500).await;
         }
     };
     result

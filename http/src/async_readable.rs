@@ -10,6 +10,7 @@ pub enum AsyncReadableAction {
     Error(std::io::Error),
 }
 
+// TODO(mleonhard) Replace this with https://docs.rs/tokio-test/0.3.0/tokio_test/io/index.html
 struct AsyncReadable(Vec<AsyncReadableAction>);
 
 impl AsyncRead for AsyncReadable {

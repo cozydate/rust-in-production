@@ -1,0 +1,31 @@
+[package]
+name = "logano"
+version = "0.1.0"
+authors = ["Michael Leonhard <michael@leonhardllc.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+arc-swap = "0.4"
+chrono = "0.4"
+chrono-tz = "0.5"
+json = "0.12"
+log = "0.4"
+once_cell = "1.4.0"
+
+# web server links:
+# https://github.com/hyperium/hyper/blob/master/src/server/tcp.rs
+# https://docs.rs/warp/0.2.3/warp/
+# https://github.com/seanmonstar/warp/tree/master/examples
+# https://docs.rs/tokio/0.2.21/tokio/net/struct.TcpStream.html#method.shutdown
+# https://github.com/tokio-rs/mini-redis/blob/master/src/server.rs
+# https://docs.rs/tokio/0.2.21/tokio/macro.select.html
+
+# https://blog.tonari.no/why-we-love-rust  <--- important info about rust best practices
+# https://rufflewind.com/2017-02-15/rust-move-copy-borrow
+
+# logging:
+# https://github.com/daboross/fern/issues/63
+# https://docs.rs/log/0.4.8/log/kv/trait.Source.html
+# https://github.com/rust-lang/log/issues/328

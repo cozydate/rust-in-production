@@ -1,3 +1,13 @@
+// TODO(mleonhard) Add a blocking version of read_delimited.
+// TODO(mleonhard) Move Async* code under #tokio feature, to make the crate usable without tokio.
+// TODO(mleonhard) Move to its own directory.
+// TODO(mleonhard) Add a README.md.
+// TODO(mleonhard) Add runnable examples.
+// TODO(mleonhard) Figure out how to publish to crates.io.
+// TODO(mleonhard) Add an async-std feature?
+// TODO(mleonhard) See if there's a good way to let users specify buffer length.
+// TODO(mleonhard) Refactor read_delimited() a bit to make it easier to understand.
+
 use core::pin::Pin;
 use core::task::{Context, Poll};
 

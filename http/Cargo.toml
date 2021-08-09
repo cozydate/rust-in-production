@@ -16,6 +16,7 @@ version = "0.1.0"
 
 # async-trait = "0.1"
 # base64 = "0.12"
+#assert_matches = "1.4"
 bytes = "0.5"
 # function_name = "0.2"
 futures = "0.3"
@@ -23,6 +24,7 @@ futures = "0.3"
 # hyper = { version = "0.13", features = ["stream"] }
 itoa = "0.4"
 lazy_static = "1.4"
+log = "0.4"
 logging = {path = "../logging"}
 nix = "0.18"
 pem = "0.8"

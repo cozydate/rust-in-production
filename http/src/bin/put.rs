@@ -60,23 +60,23 @@ async fn read_and_handle_request(http_reader_writer: &mut HttpReaderWriter<'_>) 
     }
 }
 
-async fn handle_connection(tcp_stream: &mut tokio::net::TcpStream) {
+async fn handle_connection(mut tcp_stream: tokio::net::TcpStream, addr: std::net::SocketAddr) {
     let (mut tcp_reader, mut tcp_writer) = tcp_stream.split();
-    let mut http_reader_writer =
-        HttpReaderWriter::new(Pin::new(&mut tcp_reader), Pin::new(&mut tcp_writer));
+    let mut http_reader_writer = HttpReaderWriter::new(
+        Pin::new(&mut tcp_reader), Pin::new(&mut tcp_writer), addr);
     loop {
         match read_and_handle_request(&mut http_reader_writer).await {
             Err(HttpError::IoError(e)) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    println!("INFO server client disconnected");
+                    println!("INFO server {:?} disconnected", http_reader_writer);
                 } else {
-                    println!("INFO server io_error={:?}", e);
+                    println!("INFO server {:?} io_error={:?}", http_reader_writer, e);
                 }
                 let _ = tcp_stream.shutdown(std::net::Shutdown::Both);
                 break;
             }
             Err(HttpError::ParseError(e)) => {
-                println!("INFO server parse_error={:?}", e);
+                println!("INFO server {:?} parse_error={:?}", http_reader_writer, e);
                 let _ = http_reader_writer.send_simple(e.status()).await;
             }
             Err(HttpError::ProcessingError(status)) => {
@@ -101,12 +101,24 @@ async fn async_main() -> () {
     );
     tokio::spawn(async move {
         loop {
-            let (mut tcp_stream, _addr) = listener.accept().await.unwrap();
-            tokio::spawn(async move { handle_connection(&mut tcp_stream).await });
+            let (tcp_stream, addr) = listener.accept().await.unwrap();
+            tokio::spawn(async move { handle_connection(tcp_stream, addr).await });
         }
     });
 
     let client = reqwest::Client::new();
+    println!("INFO client doing PUT /small");
+    let response = client.put("http://127.0.0.1:1690/small")
+        .body("request-body1")
+        .send()
+        .await
+        .unwrap();
+    println!("INFO client response {:?}", response);
+    assert_eq!(201, response.status().as_u16());
+    let body = response.bytes().await.unwrap();
+    println!("INFO client response body {:?}", body);
+    assert_eq!(bytes::Bytes::from_static(b""), body);
+
     println!("INFO client doing GET /small");
     let response = client.get("http://127.0.0.1:1690/small")
         .send()
@@ -117,6 +129,19 @@ async fn async_main() -> () {
     let body = response.bytes().await.unwrap();
     println!("INFO client response body {:?}", body);
     assert_eq!(bytes::Bytes::from_static(b"body1"), body);
+
+    println!("INFO client doing PUT /big");
+    let body: bytes::Bytes = std::iter::repeat('A' as u8).take(1024 * 1024).collect();
+    let response = client.put("http://127.0.0.1:1690/small")
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    println!("INFO client response {:?}", response);
+    assert_eq!(201, response.status().as_u16());
+    let body = response.bytes().await.unwrap();
+    println!("INFO client response body {:?}", body);
+    assert_eq!(bytes::Bytes::from_static(b""), body);
 
     println!("INFO client doing GET /big");
     let response = client.get("http://127.0.0.1:1690/big")
@@ -129,21 +154,10 @@ async fn async_main() -> () {
     println!("INFO client response body {} bytes", body.len());
     let expected_body: bytes::Bytes = std::iter::repeat('A' as u8).take(1024 * 1024).collect();
     assert_eq!(expected_body, body);
-
-    println!("INFO client doing PUT");
-    let response = client.put("http://127.0.0.1:1690/path2")
-        .body("request-body1")
-        .send()
-        .await
-        .unwrap();
-    println!("INFO client response {:?}", response);
-    assert_eq!(201, response.status().as_u16());
-    let body = response.bytes().await.unwrap();
-    println!("INFO client response body {:?}", body);
-    assert_eq!(bytes::Bytes::from_static(b""), body);
 }
 
 pub fn main() {
+    //let _global_logger_guard = logging::configure("info").unwrap();
     let mut runtime = tokio::runtime::Builder::new()
         .threaded_scheduler()
         .enable_all()
